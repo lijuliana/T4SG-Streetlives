@@ -3,9 +3,7 @@
 import { useForm } from "react-hook-form";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 interface FormValues {
@@ -14,7 +12,6 @@ interface FormValues {
 }
 
 export default function SignInPage() {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
   const {
@@ -23,21 +20,10 @@ export default function SignInPage() {
     formState: { errors },
   } = useForm<FormValues>();
 
-  const onSubmit = async ({ email, password }: FormValues) => {
+  const onSubmit = async () => {
     setIsLoading(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw error;
-      router.push("/feed");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sign in failed");
-      setIsLoading(false);
-    }
+    toast.info("Authentication is not available in this demo.");
+    setIsLoading(false);
   };
 
   return (

@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Menu, Mic, X } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 type ChatState = "greeting" | "user_replied" | "connecting" | "live";
@@ -70,7 +69,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [topic, setTopic] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -89,20 +87,6 @@ export default function ChatPage() {
     return newMsg;
   }, []);
 
-  // Persist message to Supabase
-  const persistMessage = useCallback(
-    async (sid: string, role: MessageRole, content: string) => {
-      if (role === "system") return;
-      try {
-        const supabase = createClient();
-        await supabase.from("messages").insert({ session_id: sid, role, content });
-      } catch {
-        // Non-critical: chat still works without persistence
-      }
-    },
-    []
-  );
-
   const hasInitialized = useRef(false);
 
   // Seed initial bot messages on mount
@@ -116,23 +100,6 @@ export default function ChatPage() {
       if (!sid) {
         sid = crypto.randomUUID();
         sessionStorage.setItem("chat_session_id", sid);
-        try {
-          const supabase = createClient();
-          const { data } = await supabase
-            .from("chat_sessions")
-            .insert({ anon_id: sid, status: "bot" })
-            .select("id")
-            .single();
-          if (data) {
-            sessionStorage.setItem("chat_session_db_id", data.id);
-            setSessionId(data.id);
-          }
-        } catch {
-          // Non-critical
-        }
-      } else {
-        const dbId = sessionStorage.getItem("chat_session_db_id");
-        if (dbId) setSessionId(dbId);
       }
 
       setTimeout(() => {
@@ -152,7 +119,7 @@ export default function ChatPage() {
   }, []);
 
   const triggerNavigatorConnection = useCallback(
-    (selectedTopic: string, sid: string | null) => {
+    (selectedTopic: string) => {
       setChatState("connecting");
 
       setTimeout(() => {
@@ -161,11 +128,10 @@ export default function ChatPage() {
 
       setTimeout(() => {
         setIsTyping(false);
-        const botMsg = addMessage({
+        addMessage({
           role: "bot",
           content: "Thanks, let me connect you with a peer navigator to help you",
         });
-        if (sid) persistMessage(sid, "bot", botMsg.content);
 
         setTimeout(() => {
           addMessage({
@@ -179,47 +145,32 @@ export default function ChatPage() {
 
           setTimeout(() => {
             setIsTyping(false);
-            const msg1 = addMessage({
+            addMessage({
               role: "navigator",
               content: `Hi, I'm Jenna, I see you need help with ${selectedTopic.toLowerCase()}.`,
             });
-            if (sid) persistMessage(sid, "navigator", msg1.content);
 
             setTimeout(() => {
-              const msg2 = addMessage({
+              addMessage({
                 role: "navigator",
                 content: "Can you tell me a little more about what you need?",
               });
-              if (sid) persistMessage(sid, "navigator", msg2.content);
               setChatState("live");
-              if (sid) {
-                try {
-                  const supabase = createClient();
-                  supabase
-                    .from("chat_sessions")
-                    .update({ status: "live", topic: selectedTopic })
-                    .eq("id", sid)
-                    .then(() => {});
-                } catch {
-                  // Non-critical
-                }
-              }
               setTimeout(() => inputRef.current?.focus(), 100);
             }, 800);
           }, 1800);
         }, 600);
       }, 1000);
     },
-    [addMessage, persistMessage]
+    [addMessage]
   );
 
   const handleQuickReply = (chip: string) => {
     if (chatState !== "greeting") return;
     setChatState("user_replied");
     setTopic(chip);
-    const msg = addMessage({ role: "user", content: chip });
-    if (sessionId) persistMessage(sessionId, "user", msg.content);
-    triggerNavigatorConnection(chip, sessionId);
+    addMessage({ role: "user", content: chip });
+    triggerNavigatorConnection(chip);
   };
 
   const handleLiveFAB = () => {
@@ -227,32 +178,18 @@ export default function ChatPage() {
     const t = topic || "general support";
     setTopic(t);
     setChatState("user_replied");
-    triggerNavigatorConnection(t, sessionId);
+    triggerNavigatorConnection(t);
   };
 
   const handleSend = () => {
     const text = inputValue.trim();
     if (!text || chatState !== "live") return;
     setInputValue("");
-    const msg = addMessage({ role: "user", content: text });
-    if (sessionId) persistMessage(sessionId, "user", msg.content);
+    addMessage({ role: "user", content: text });
   };
 
   const handleEndChat = () => {
-    if (sessionId) {
-      try {
-        const supabase = createClient();
-        supabase
-          .from("chat_sessions")
-          .update({ status: "ended" })
-          .eq("id", sessionId)
-          .then(() => {});
-      } catch {
-        // Non-critical
-      }
-    }
     sessionStorage.removeItem("chat_session_id");
-    sessionStorage.removeItem("chat_session_db_id");
     router.push("/");
   };
 

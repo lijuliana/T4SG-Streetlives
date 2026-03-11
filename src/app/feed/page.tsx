@@ -1,26 +1,42 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
 import Navbar from "@/components/Navbar";
 import PostCard from "@/components/PostCard";
-import SignOutButton from "@/components/SignOutButton";
 
-export default async function FeedPage() {
-  const supabase = await createClient();
+const MOCK_POSTS = [
+  {
+    id: "1",
+    content: "Just found out that the drop-in center on 42nd opens at 7am on weekdays now. Great for getting breakfast before job searches.",
+    created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+    author_email: "marcus.t@example.com",
+  },
+  {
+    id: "2",
+    content: "Anyone know if the mobile health clinic is still coming to Tompkins Square on Thursdays? Trying to get my prescriptions sorted.",
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+    author_email: undefined,
+  },
+  {
+    id: "3",
+    content: "BRC on 30th St was super helpful — they connected me with a housing specialist same day. If you need case management don't sleep on it.",
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 11).toISOString(),
+    author_email: "jess.m@example.com",
+  },
+  {
+    id: "4",
+    content: "Heads up — the food pantry on Amsterdam Ave is giving out extra hygiene kits this week while supplies last.",
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+    author_email: undefined,
+  },
+  {
+    id: "5",
+    content: "Finally got into transitional housing after 8 months on the list. For anyone still waiting — keep checking in weekly, that's what made a difference for me.",
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
+    author_email: "dani.r@example.com",
+  },
+];
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/auth/signin");
-
-  // Fetch posts with author emails via a join
-  const { data: posts } = await supabase
-    .from("posts")
-    .select("id, content, created_at, user_id")
-    .order("created_at", { ascending: false });
-
+export default function FeedPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -28,26 +44,13 @@ export default async function FeedPage() {
       {/* Top bar */}
       <div className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
         <h2 className="font-black text-lg text-gray-900">Community Feed</h2>
-        <SignOutButton />
       </div>
 
       {/* Posts */}
       <main className="flex-1 px-4 py-5 space-y-3 max-w-lg mx-auto w-full">
-        {!posts || posts.length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-4xl mb-3">💬</p>
-            <p className="font-semibold text-gray-700">No posts yet</p>
-            <p className="text-sm text-gray-400 mt-1">Be the first to share something.</p>
-          </div>
-        ) : (
-          posts.map((post, i) => (
-            <PostCard
-              key={post.id}
-              post={{ ...post, author_email: undefined }}
-              index={i}
-            />
-          ))
-        )}
+        {MOCK_POSTS.map((post, i) => (
+          <PostCard key={post.id} post={post} index={i} />
+        ))}
       </main>
 
       {/* FAB */}

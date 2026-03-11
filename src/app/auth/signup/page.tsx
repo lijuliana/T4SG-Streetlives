@@ -4,7 +4,6 @@ import { useForm } from "react-hook-form";
 import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 interface FormValues {
@@ -13,7 +12,6 @@ interface FormValues {
 }
 
 export default function SignUpPage() {
-  const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const {
@@ -22,48 +20,11 @@ export default function SignUpPage() {
     formState: { errors },
   } = useForm<FormValues>();
 
-  const onSubmit = async ({ email, password }: FormValues) => {
+  const onSubmit = async () => {
     setIsLoading(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-      if (error) throw error;
-      setSubmitted(true);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sign up failed");
-    } finally {
-      setIsLoading(false);
-    }
+    toast.info("Authentication is not available in this demo.");
+    setIsLoading(false);
   };
-
-  if (submitted) {
-    return (
-      <div className="min-h-screen bg-brand-yellow flex flex-col items-center justify-center px-5">
-        <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-lg">
-          <div className="w-14 h-14 rounded-full bg-brand-yellow flex items-center justify-center mx-auto mb-4 text-2xl">
-            ✉️
-          </div>
-          <h2 className="text-xl font-black text-gray-900">Check your email</h2>
-          <p className="mt-2 text-sm text-gray-500">
-            We sent a confirmation link. Click it to activate your account and
-            sign in.
-          </p>
-          <Link
-            href="/auth/signin"
-            className="mt-6 inline-block text-sm font-semibold text-gray-600 hover:text-gray-900 transition"
-          >
-            Back to Sign In
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-brand-yellow flex flex-col">

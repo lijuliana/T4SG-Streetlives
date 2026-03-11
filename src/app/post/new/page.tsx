@@ -1,18 +1,8 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
 import NewPostForm from "@/components/NewPostForm";
 
-export default async function NewPostPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/auth/signin");
-
+export default function NewPostPage() {
   return (
     <div className="min-h-screen bg-brand-yellow flex flex-col">
       {/* Header */}
@@ -34,7 +24,7 @@ export default async function NewPostPage() {
 
       {/* Form card */}
       <div className="flex-1 bg-white rounded-t-3xl px-5 pt-8 pb-10 shadow-inner">
-        <NewPostForm userId={user.id} />
+        <NewPostForm />
       </div>
     </div>
   );
