@@ -1,4 +1,21 @@
-node_modules/
-function.zip
+# Next.js build output
 .next/
-.env.local
+out/
+
+# dependencies
+node_modules/
+
+# env
+.env*
+!.env.example
+
+# logs
+*.log
+
+# OS
+.DS_Store
+
+# TypeScript build info
+*.tsbuildinfo
+
+function.zip
