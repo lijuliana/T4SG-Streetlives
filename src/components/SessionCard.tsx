@@ -20,6 +20,8 @@ export default function SessionCard({ session, viewerRole, index = 0 }: Props) {
       ? `/dashboard/navigator/${session.id}`
       : `/dashboard/user/${session.id}`;
 
+  const isUnassigned = session.navigatorId === null;
+
   const primaryName =
     viewerRole === "navigator" || viewerRole === "supervisor"
       ? session.userDisplayName
@@ -49,10 +51,19 @@ export default function SessionCard({ session, viewerRole, index = 0 }: Props) {
       transition={{ duration: 0.25, delay: index * 0.05 }}
       className="w-full text-left bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3.5 flex items-center gap-3 hover:border-gray-300 hover:shadow-md transition"
     >
-      {/* Avatar */}
-      <div className="w-10 h-10 rounded-full bg-brand-yellow flex items-center justify-center flex-shrink-0">
-        <span className="text-xs font-medium text-gray-900">{initials}</span>
-      </div>
+      {/* Avatar — gray placeholder for unassigned, yellow with initials otherwise */}
+      {isUnassigned ? (
+        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        </div>
+      ) : (
+        <div className="w-10 h-10 rounded-full bg-brand-yellow flex items-center justify-center flex-shrink-0">
+          <span className="text-xs font-medium text-gray-900">{initials}</span>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -66,6 +77,11 @@ export default function SessionCard({ session, viewerRole, index = 0 }: Props) {
               {t}
             </span>
           ))}
+          {session.assignedByRouting && (
+            <span className="text-[10px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full">
+              Routed
+            </span>
+          )}
           <span className="text-xs text-gray-400">
             {moment(session.startedAt).calendar(null, {
               sameDay: "[Today at] h:mm A",

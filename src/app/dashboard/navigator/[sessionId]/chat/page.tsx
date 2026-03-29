@@ -101,6 +101,31 @@ export default function NavigatorChatPage() {
 
       const ts = moment(msg.timestamp).format("h:mm A");
 
+      // Service referral card — right-aligned (navigator's own message)
+      if (msg.serviceId) {
+        const hasDetail = msg.serviceId !== "unlinked";
+        return (
+          <div key={msg.id} className="flex flex-col items-end mb-3 max-w-[80%] ml-auto">
+            {hasDetail ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/services/${msg.serviceId}`)}
+                className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-2xl rounded-br-sm text-left w-fit hover:brightness-95 transition"
+              >
+                <p className="font-medium">{msg.content}</p>
+                <p className="text-xs mt-0.5 underline">Click here for details →</p>
+              </button>
+            ) : (
+              <div className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-2xl rounded-br-sm w-fit">
+                <p className="font-medium">{msg.content}</p>
+                <p className="text-xs mt-0.5 text-gray-700">Referral shared</p>
+              </div>
+            )}
+            <span className="text-[10px] text-gray-400 mt-1 mr-1">{ts}</span>
+          </div>
+        );
+      }
+
       // Navigator + bot messages — right-aligned (our side)
       if (msg.role === "navigator" || msg.role === "bot") {
         const isNavigator = msg.role === "navigator";

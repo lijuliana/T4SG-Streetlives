@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, REFERRAL_CATEGORIES, REFERRAL_STATUSES, REFERRAL_STATUS_LABELS } from "@/lib/store";
 import type { ReferralCategory, ReferralStatus } from "@/lib/store";
+import { SERVICE_BY_NAME } from "@/lib/mockData";
 
 interface FormValues {
   serviceName: string;
@@ -22,6 +23,7 @@ interface Props {
 
 export default function ReferralForm({ sessionId, open, onClose }: Props) {
   const addReferral = useStore((s) => s.addReferral);
+  const addChatMessage = useStore((s) => s.addChatMessage);
 
   const {
     register,
@@ -39,6 +41,15 @@ export default function ReferralForm({ sessionId, open, onClose }: Props) {
       status: data.status,
       notes: data.notes || undefined,
     });
+
+    const matched = SERVICE_BY_NAME[data.serviceName.toLowerCase()];
+    // Always send a referral card message; serviceId "unlinked" = card with no detail page
+    addChatMessage(sessionId, {
+      role: "navigator",
+      content: data.serviceName,
+      serviceId: matched?.id ?? "unlinked",
+    });
+
     toast.success("Referral added");
     reset();
     onClose();

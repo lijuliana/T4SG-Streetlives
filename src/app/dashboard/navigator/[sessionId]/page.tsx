@@ -3,20 +3,44 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, MessageSquare } from "lucide-react";
+import { Plus, MessageSquare, Circle, UserPlus, ArrowRight, CheckCircle } from "lucide-react";
 import moment from "moment";
 import { useStore } from "@/lib/store";
+import type { SessionEvent } from "@/lib/store";
 import DashboardShell from "@/components/DashboardShell";
 import SessionStatusBadge from "@/components/SessionStatusBadge";
 import ReferralCard from "@/components/ReferralCard";
 import ReferralForm from "@/components/ReferralForm";
 
+const DEMO_NAVIGATOR_ID = "nav-1";
+
+const EVENT_LABELS: Record<SessionEvent["type"], string> = {
+  created: "Session created",
+  assigned: "Assigned",
+  transferred: "Transferred",
+  closed: "Session closed",
+};
+
+function EventIcon({ type }: { type: SessionEvent["type"] }) {
+  const cls = "flex-shrink-0 mt-0.5";
+  if (type === "created") return <Circle size={14} className={`${cls} text-gray-400`} />;
+  if (type === "assigned") return <UserPlus size={14} className={`${cls} text-blue-400`} />;
+  if (type === "transferred") return <ArrowRight size={14} className={`${cls} text-amber-500`} />;
+  return <CheckCircle size={14} className={`${cls} text-green-500`} />;
+}
+
 export default function NavigatorSessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
+
+  const allSessions = useStore((s) => s.sessions);
   const getSessionById = useStore((s) => s.getSessionById);
+  const navigators = useStore((s) => s.navigators);
   const updateSessionStatus = useStore((s) => s.updateSessionStatus);
   const endSession = useStore((s) => s.endSession);
+  const assignSession = useStore((s) => s.assignSession);
+  const transferSession = useStore((s) => s.transferSession);
+  const rerouteSession = useStore((s) => s.rerouteSession);
   const activeRole = useStore((s) => s.activeRole);
   const chatMessageCount = useStore((s) => s.chatMessages[sessionId]?.length ?? 0);
 
@@ -28,7 +52,11 @@ export default function NavigatorSessionDetailPage() {
 
   if (!session) {
     return (
-      <DashboardShell title="Session Not Found" role={activeRole === "supervisor" ? "supervisor" : "navigator"} backHref={activeRole === "supervisor" ? "/dashboard/supervisor" : "/dashboard/navigator"}>
+      <DashboardShell
+        title="Session Not Found"
+        role={activeRole === "supervisor" ? "supervisor" : "navigator"}
+        backHref={activeRole === "supervisor" ? "/dashboard/supervisor" : "/dashboard/navigator"}
+      >
         <p className="text-sm text-gray-500">This session could not be found.</p>
       </DashboardShell>
     );
@@ -36,6 +64,8 @@ export default function NavigatorSessionDetailPage() {
 
   const isClosed = session.status === "closed";
   const isSupervisor = activeRole === "supervisor";
+  const isUnassigned = session.navigatorId === null;
+  const isMySession = session.navigatorId === DEMO_NAVIGATOR_ID;
 
   const handleClose = () => {
     endSession(session.id, summaryText || undefined);
@@ -43,6 +73,8 @@ export default function NavigatorSessionDetailPage() {
     setShowCloseConfirm(false);
     router.push("/dashboard/navigator");
   };
+
+  const otherNavigators = navigators.filter((n) => n.id !== session.navigatorId);
 
   return (
     <DashboardShell
@@ -70,17 +102,24 @@ export default function NavigatorSessionDetailPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             {session.topics.map((t) => (
-              <span
-                key={t}
-                className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full capitalize"
-              >
+              <span key={t} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full capitalize">
                 {t}
               </span>
             ))}
+            {session.assignedByRouting && (
+              <span className="text-[10px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full">
+                Routed
+              </span>
+            )}
           </div>
           <SessionStatusBadge status={session.status} />
         </div>
         <div className="text-xs text-gray-400 space-y-0.5">
+          {session.navigatorId ? (
+            <p>Navigator: {session.navigatorName}</p>
+          ) : (
+            <p className="text-amber-500">Unassigned</p>
+          )}
           <p>Started {moment(session.startedAt).format("MMM D, YYYY [at] h:mm A")}</p>
           {session.closedAt && (
             <p>Closed {moment(session.closedAt).format("MMM D, YYYY [at] h:mm A")}</p>
@@ -88,8 +127,74 @@ export default function NavigatorSessionDetailPage() {
         </div>
       </div>
 
-      {/* Action buttons — navigators only */}
-      {!isClosed && !isSupervisor && (
+      {/* Assign to me — unassigned + navigator role */}
+      {isUnassigned && !isSupervisor && (
+        <button
+          type="button"
+          onClick={() => {
+            assignSession(session.id, DEMO_NAVIGATOR_ID);
+            toast.success("Session assigned to you");
+          }}
+          className="w-full bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition"
+        >
+          Assign to Me
+        </button>
+      )}
+
+      {/* Assign to… — unassigned + supervisor role */}
+      {isUnassigned && isSupervisor && (
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Assign to Navigator</p>
+          <select
+            aria-label="Assign to navigator"
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) {
+                assignSession(session.id, e.target.value);
+                toast.success("Session assigned");
+              }
+            }}
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow bg-white"
+          >
+            <option value="" disabled>Select a navigator…</option>
+            {navigators.map((n) => (
+              <option key={n.id} value={n.id}>{n.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Transfer + Re-run routing — active assigned sessions, navigator or supervisor */}
+      {!isClosed && !isUnassigned && (isMySession || isSupervisor) && (
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Routing</p>
+          <div className="flex gap-2">
+            <select
+              aria-label="Transfer to navigator"
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) transferSession(session.id, e.target.value);
+              }}
+              className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-brand-yellow bg-white"
+            >
+              <option value="" disabled>Transfer to…</option>
+              {otherNavigators.map((n) => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => rerouteSession(session.id)}
+              className="text-xs font-medium text-gray-700 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition whitespace-nowrap"
+            >
+              Re-run Routing
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Close session — navigator only, active session */}
+      {!isClosed && !isSupervisor && isMySession && (
         <div className="flex gap-2">
           <button
             type="button"
@@ -131,7 +236,7 @@ export default function NavigatorSessionDetailPage() {
         </div>
       )}
 
-      {/* Summary (editable while active, read-only when closed) */}
+      {/* Session Notes */}
       {!showCloseConfirm && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -168,7 +273,7 @@ export default function NavigatorSessionDetailPage() {
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
             Referrals ({session.referrals.length})
           </h2>
-          {!isClosed && !isSupervisor && (
+          {!isClosed && !isSupervisor && isMySession && (
             <button
               type="button"
               onClick={() => setReferralOpen(true)}
@@ -179,11 +284,10 @@ export default function NavigatorSessionDetailPage() {
             </button>
           )}
         </div>
-
         {session.referrals.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl px-5 py-6 text-center">
             <p className="text-sm text-gray-400">No referrals yet</p>
-            {!isClosed && (
+            {!isClosed && !isSupervisor && isMySession && (
               <button
                 type="button"
                 onClick={() => setReferralOpen(true)}
@@ -196,10 +300,37 @@ export default function NavigatorSessionDetailPage() {
         ) : (
           <div className="space-y-2">
             {session.referrals.map((ref) => (
-              <ReferralCard key={ref.id} referral={ref} editable={!isClosed} />
+              <ReferralCard key={ref.id} referral={ref} editable={!isClosed && !isSupervisor} />
             ))}
           </div>
         )}
+      </div>
+
+      {/* Timeline */}
+      <div>
+        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+          Timeline
+        </h2>
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-3">
+          {session.events.length === 0 ? (
+            <p className="text-sm text-gray-400">No events recorded.</p>
+          ) : (
+            session.events.map((event) => (
+              <div key={event.id} className="flex items-start gap-2.5">
+                <EventIcon type={event.type} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-700">
+                    {EVENT_LABELS[event.type]}
+                    {event.note ? ` — ${event.note}` : ""}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {moment(event.timestamp).format("MMM D [at] h:mm A")} · {event.actorName}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       <ReferralForm
