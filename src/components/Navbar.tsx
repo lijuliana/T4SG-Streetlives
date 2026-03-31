@@ -3,12 +3,23 @@ import { LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { auth0 } from "@/lib/auth0";
 
+const ROLES_CLAIM = "https://streetlives.app/roles";
+
+const ROLE_DASHBOARD: Record<string, string> = {
+  navigator: "/navigator/dashboard",
+  supervisor: "/supervisor/dashboard",
+};
+
 interface NavbarProps {
   className?: string;
 }
 
 export default async function Navbar({ className }: NavbarProps) {
   const session = await auth0.getSession();
+
+  const roles = (session?.user?.[ROLES_CLAIM] as string[]) ?? [];
+  const activeRole = roles.find((r) => r in ROLE_DASHBOARD);
+  const dashboardHref = activeRole ? ROLE_DASHBOARD[activeRole] : "/";
 
   return (
     <header
@@ -19,7 +30,7 @@ export default async function Navbar({ className }: NavbarProps) {
     >
       {/* Dashboard link */}
       <Link
-        href={ROLE_DASHBOARD[activeRole]}
+        href={dashboardHref}
         className="p-1 text-gray-800 hover:opacity-70 transition-opacity"
         aria-label="Go to dashboard"
       >
