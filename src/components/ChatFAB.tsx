@@ -34,7 +34,7 @@ export default function ChatFAB() {
       {/* Desktop floating panel */}
       {open && (
         <div className="fixed bottom-24 right-6 w-[480px] h-[700px] rounded-2xl shadow-2xl overflow-hidden z-50 border border-gray-200">
-          <ChatContent />
+          <ChatContent onClose={() => setOpen(false)} />
         </div>
       )}
 

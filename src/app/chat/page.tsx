@@ -75,7 +75,7 @@ function NavigatorAvatar() {
   );
 }
 
-export function ChatContent() {
+export function ChatContent({ onClose }: { onClose?: () => void } = {}) {
   const router = useRouter();
 
   const createSession = useStore((s) => s.createSession);
@@ -210,7 +210,8 @@ export function ChatContent() {
   };
 
   const handleEndChat = () => {
-    router.push("/");
+    if (onClose) onClose();
+    else router.push("/");
   };
 
   const handleStartNewChat = () => {
