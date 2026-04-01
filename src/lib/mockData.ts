@@ -1,9 +1,27 @@
 import type { Navigator, Session } from "./store";
 
+// ─── Navigators ───────────────────────────────────────────────────────────────
+
 export const MOCK_NAVIGATORS: Navigator[] = [
-  { id: "nav-1", name: "Jenna Rivera", avatarInitials: "JR" },
-  { id: "nav-2", name: "Marcus D.", avatarInitials: "MD" },
+  {
+    id: "nav-1",
+    name: "Jenna Rivera",
+    avatarInitials: "JR",
+    specialties: ["Accommodations", "Food", "Personal Care"],
+    capacity: 4,
+    available: true,
+  },
+  {
+    id: "nav-2",
+    name: "Marcus D.",
+    avatarInitials: "MD",
+    specialties: ["Health", "Legal", "Work"],
+    capacity: 3,
+    available: true,
+  },
 ];
+
+// ─── Sessions ─────────────────────────────────────────────────────────────────
 
 const now = Date.now();
 const mins = (n: number) => new Date(now - n * 60 * 1000).toISOString();
@@ -19,6 +37,11 @@ export const MOCK_SESSIONS: Session[] = [
     status: "active",
     startedAt: mins(22),
     topics: ["housing"],
+    assignedByRouting: true,
+    events: [
+      { id: "e-ses1-1", type: "created", actorName: "System", timestamp: mins(22) },
+      { id: "e-ses1-2", type: "assigned", actorName: "System", timestamp: mins(22), note: "Assigned to Jenna Rivera" },
+    ],
     referrals: [
       {
         id: "ref-1",
@@ -42,6 +65,12 @@ export const MOCK_SESSIONS: Session[] = [
     closedAt: days(2),
     topics: ["food"],
     summary: "Connected Aaliyah with local food pantry. She plans to visit Friday.",
+    assignedByRouting: true,
+    events: [
+      { id: "e-ses2-1", type: "created", actorName: "System", timestamp: days(2) },
+      { id: "e-ses2-2", type: "assigned", actorName: "System", timestamp: days(2), note: "Assigned to Jenna Rivera" },
+      { id: "e-ses2-3", type: "closed", actorName: "Jenna Rivera", timestamp: days(2) },
+    ],
     referrals: [
       {
         id: "ref-2",
@@ -62,6 +91,11 @@ export const MOCK_SESSIONS: Session[] = [
     status: "active",
     startedAt: mins(45),
     topics: ["health"],
+    assignedByRouting: true,
+    events: [
+      { id: "e-ses3-1", type: "created", actorName: "System", timestamp: mins(45) },
+      { id: "e-ses3-2", type: "assigned", actorName: "System", timestamp: mins(45), note: "Assigned to Marcus D." },
+    ],
     referrals: [
       {
         id: "ref-3",
@@ -74,4 +108,98 @@ export const MOCK_SESSIONS: Session[] = [
       },
     ],
   },
+  {
+    id: "ses-4",
+    userId: "user-4",
+    userDisplayName: "Elena V.",
+    navigatorId: null,
+    navigatorName: "",
+    status: "active",
+    startedAt: mins(5),
+    topics: ["Legal"],
+    assignedByRouting: false,
+    events: [
+      { id: "e-ses4-1", type: "created", actorName: "System", timestamp: mins(5) },
+    ],
+    referrals: [],
+  },
 ];
+
+// ─── Services ─────────────────────────────────────────────────────────────────
+
+export interface Service {
+  id: string;
+  name: string;
+  neighborhood: string;
+  walkMinutes: number;
+  verifiedDaysAgo: number;
+  isOpen: boolean;
+  closesAt: string;
+  services: string[];
+  beds: number;
+  description: string;
+  eligibility: string[];
+}
+
+export const MOCK_SERVICES: Service[] = [
+  {
+    id: "seek-steps-center",
+    name: "The Seek Steps Center",
+    neighborhood: "East Village",
+    walkMinutes: 3,
+    verifiedDaysAgo: 30,
+    isOpen: true,
+    closesAt: "9PM",
+    services: ["Shelter", "Food", "Medical care", "Wi-fi"],
+    beds: 12,
+    description:
+      "This service provides housing and supportive services to youth facing homelessness. They help young people transform their lives and put them on a path to independence.",
+    eligibility: [
+      "18–24 yrs old",
+      "Haven't been assigned to other shelters",
+      "ID required (1 week grace period before ID is required)",
+      "Unemployment verification letter (for housing options)",
+    ],
+  },
+  {
+    id: "hope-house",
+    name: "Hope House Emergency Shelter",
+    neighborhood: "Bronx",
+    walkMinutes: 8,
+    verifiedDaysAgo: 14,
+    isOpen: true,
+    closesAt: "11PM",
+    services: ["Shelter", "Food"],
+    beds: 24,
+    description:
+      "Emergency shelter providing safe overnight stays and meals for adults in crisis. No reservation required — first come, first served.",
+    eligibility: [
+      "18+ yrs old",
+      "No active warrants",
+      "Sobriety required on premises",
+    ],
+  },
+  {
+    id: "bronxcare-clinic",
+    name: "BronxCare Community Clinic",
+    neighborhood: "South Bronx",
+    walkMinutes: 12,
+    verifiedDaysAgo: 7,
+    isOpen: false,
+    closesAt: "5PM",
+    services: ["Primary care", "Mental health", "Dental"],
+    beds: 0,
+    description:
+      "Community health center offering sliding-scale medical, mental health, and dental services. No insurance required.",
+    eligibility: [
+      "All ages welcome",
+      "Sliding-scale fees based on income",
+      "No insurance required",
+    ],
+  },
+];
+
+// Lookup map for quick service resolution by name
+export const SERVICE_BY_NAME: Record<string, Service> = Object.fromEntries(
+  MOCK_SERVICES.map((s) => [s.name.toLowerCase(), s])
+);

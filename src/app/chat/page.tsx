@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Mic, X } from "lucide-react";
 import moment from "moment";
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/store";
+import { useStore, routeSession } from "@/lib/store";
 import type { ChatMessageRole } from "@/lib/store";
 
 type ChatState = "greeting" | "user_replied" | "connecting" | "live";
@@ -15,6 +15,7 @@ interface LocalMessage {
   role: ChatMessageRole;
   content: string;
   timestamp: string;
+  serviceId?: string;
 }
 
 const QUICK_REPLIES = [
@@ -27,6 +28,30 @@ const QUICK_REPLIES = [
 
 // Stable empty array to avoid selector infinite loop
 const EMPTY_MSGS: import("@/lib/store").ChatMessage[] = [];
+
+// Maps raw topic text → ReferralCategory string
+function mapTopicToCategory(text: string): string {
+  const t = text.toLowerCase();
+  if (/sleep|shelter|housing|place to stay|roof/.test(t)) return "Accommodations";
+  if (/food|eat|hungry|meal|pantry/.test(t)) return "Food";
+  if (/job|work|employ|career/.test(t)) return "Work";
+  if (/health|doctor|clinic|medical|care/.test(t)) return "Health";
+  if (/legal|law|court|rights/.test(t)) return "Legal";
+  if (/shower|hygiene|clean|personal/.test(t)) return "Personal Care";
+  if (/family|child|kids/.test(t)) return "Family Services";
+  return "Other";
+}
+
+const CATEGORY_PHRASES: Record<string, string> = {
+  Accommodations: "finding housing",
+  Food: "finding food",
+  Work: "finding work",
+  Health: "with your health needs",
+  Legal: "with a legal matter",
+  "Personal Care": "with personal care",
+  "Family Services": "with family support",
+  Other: "with what you need",
+};
 
 function BotAvatar() {
   return (
@@ -50,16 +75,15 @@ function NavigatorAvatar() {
   );
 }
 
-export default function ChatPage() {
+export function ChatContent() {
   const router = useRouter();
 
   const createSession = useStore((s) => s.createSession);
-  const updateSessionStatus = useStore((s) => s.updateSessionStatus);
-  const endSessionInStore = useStore((s) => s.endSession);
   const addChatMessage = useStore((s) => s.addChatMessage);
   const seedChatMessages = useStore((s) => s.seedChatMessages);
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [routedNavName, setRoutedNavName] = useState("Jenna");
 
   // Watch session status so we can detect when navigator closes the session
   const sessionStatus = useStore((s) =>
@@ -67,23 +91,18 @@ export default function ChatPage() {
   );
   const isClosed = sessionStatus === "closed";
   const [chatState, setChatState] = useState<ChatState>("greeting");
-  // Pre-session messages (bot greeting, connecting phase)
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [topic, setTopic] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Ref to capture current local messages inside stale closures
   const localMessagesRef = useRef<LocalMessage[]>([]);
 
-  // Store-backed messages once session is live
   const storeMessages = useStore((s) =>
     activeSessionId ? (s.chatMessages[activeSessionId] ?? EMPTY_MSGS) : EMPTY_MSGS
   );
 
-  // What actually renders — pre-session: local, live: store
   const displayMessages = activeSessionId ? storeMessages : localMessages;
 
   useEffect(() => {
@@ -102,6 +121,20 @@ export default function ChatPage() {
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
+
+    // Restore an in-progress session if one was saved (e.g. user navigated away and back)
+    const storedId = sessionStorage.getItem("chat_session_id");
+    if (storedId) {
+      const session = useStore.getState().sessions.find((s) => s.id === storedId);
+      if (session) {
+        setActiveSessionId(storedId);
+        setChatState("live");
+        if (session.navigatorName) setRoutedNavName(session.navigatorName.split(" ")[0]);
+        return;
+      }
+      sessionStorage.removeItem("chat_session_id");
+    }
+
     setTimeout(() => addLocalMessage({ role: "bot", content: "Hi, we're here to help guide you through this service" }), 300);
     setTimeout(() => addLocalMessage({ role: "bot", content: "What can I help you with?" }), 750);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,6 +144,15 @@ export default function ChatPage() {
     (selectedTopic: string) => {
       setChatState("connecting");
 
+      // Determine routed navigator
+      const category = mapTopicToCategory(selectedTopic);
+      const allNavigators = useStore.getState().navigators;
+      const allSessions = useStore.getState().sessions;
+      const routedNavId = routeSession(category, allNavigators, allSessions);
+      const routedNav = allNavigators.find((n) => n.id === routedNavId) ?? allNavigators[0];
+      const phrase = CATEGORY_PHRASES[category] ?? "with what you need";
+      setRoutedNavName(routedNav.name);
+
       setTimeout(() => setIsTyping(true), 400);
 
       setTimeout(() => {
@@ -118,24 +160,22 @@ export default function ChatPage() {
         addLocalMessage({ role: "bot", content: "Thanks, let me connect you with a peer navigator to help you" });
 
         setTimeout(() => {
-          addLocalMessage({ role: "system", content: "You are being connected with Jenna" });
+          addLocalMessage({ role: "system", content: `You are being connected with ${routedNav.name.split(" ")[0]}` });
 
           setTimeout(() => setIsTyping(true), 600);
 
           setTimeout(() => {
             setIsTyping(false);
-            addLocalMessage({ role: "navigator", content: `Hi, I'm Jenna, I see you need help with ${selectedTopic.toLowerCase()}.` });
+            addLocalMessage({ role: "navigator", content: `Hi, I'm ${routedNav.name}. I see you need help ${phrase}.` });
 
             setTimeout(() => {
               addLocalMessage({ role: "navigator", content: "Can you tell me a little more about what you need?" });
               setChatState("live");
 
-              // Create session and seed the store with the full conversation so far
-              const newSession = createSession("user-1", "Jordan M.", "nav-1", selectedTopic);
+              const newSession = createSession("user-1", "Jordan M.", routedNav.id, selectedTopic, true);
               setActiveSessionId(newSession.id);
               sessionStorage.setItem("chat_session_id", newSession.id);
-              updateSessionStatus(newSession.id, "active");
-              seedChatMessages(newSession.id, localMessagesRef.current.map((m) => ({ role: m.role, content: m.content })));
+              seedChatMessages(newSession.id, localMessagesRef.current.map((m) => ({ role: m.role, content: m.content, serviceId: m.serviceId })));
 
               setTimeout(() => inputRef.current?.focus(), 100);
             }, 800);
@@ -143,7 +183,7 @@ export default function ChatPage() {
         }, 600);
       }, 1000);
     },
-    [addLocalMessage, createSession, updateSessionStatus, seedChatMessages]
+    [addLocalMessage, createSession, seedChatMessages]
   );
 
   const handleQuickReply = (chip: string) => {
@@ -170,13 +210,9 @@ export default function ChatPage() {
   };
 
   const handleEndChat = () => {
-    const sid = sessionStorage.getItem("chat_session_id") ?? activeSessionId;
-    if (sid) endSessionInStore(sid);
-    sessionStorage.removeItem("chat_session_id");
     router.push("/");
   };
 
-  // Full reset so the user can start a fresh conversation
   const handleStartNewChat = () => {
     sessionStorage.removeItem("chat_session_id");
     window.location.reload();
@@ -195,6 +231,34 @@ export default function ChatPage() {
       }
 
       const ts = "timestamp" in msg ? moment(msg.timestamp).format("h:mm A") : "";
+
+      // Service referral card — left-aligned (from navigator)
+      if ("serviceId" in msg && msg.serviceId) {
+        const hasDetail = msg.serviceId !== "unlinked";
+        return (
+          <div key={msg.id} className="flex gap-3 mb-3 max-w-[80%]">
+            <NavigatorAvatar />
+            <div className="flex flex-col">
+              {hasDetail ? (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/services/${msg.serviceId}`)}
+                  className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-2xl rounded-tl-sm text-left w-fit hover:brightness-95 transition"
+                >
+                  <p className="font-medium">{msg.content}</p>
+                  <p className="text-xs mt-0.5 underline">Click here for details →</p>
+                </button>
+              ) : (
+                <div className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-2xl rounded-tl-sm w-fit">
+                  <p className="font-medium">{msg.content}</p>
+                  <p className="text-xs mt-0.5 text-gray-700">Referral shared by your navigator</p>
+                </div>
+              )}
+              {ts && <span className="text-[10px] text-gray-400 mt-1 ml-1">{ts}</span>}
+            </div>
+          </div>
+        );
+      }
 
       if (msg.role === "user") {
         return (
@@ -229,11 +293,11 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100 w-full">
+    <div className="flex flex-col h-full bg-gray-100 w-full">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 flex-shrink-0">
         <div className="w-8" />
-        <span className="font-bold text-base text-gray-900">StreetLives</span>
+        <span className="font-medium text-base text-gray-900">StreetLives</span>
         <button type="button" onClick={handleEndChat} className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 transition" aria-label="End chat">
           END CHAT
           <X size={18} strokeWidth={2.5} />
@@ -243,7 +307,9 @@ export default function ChatPage() {
       {/* Connection status */}
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex-shrink-0">
         <p className="text-xs text-gray-400 text-center">
-          {chatState === "live" ? "Connected with Jenna · Peer Navigator" : "You are connected with StreetLives assistant"}
+          {chatState === "live"
+            ? `Connected with ${routedNavName} · Peer Navigator`
+            : "You are connected with StreetLives assistant"}
         </p>
       </div>
 
@@ -305,16 +371,14 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* LIVE FAB */}
-      {(chatState === "greeting" || chatState === "user_replied") && (
-        <button type="button" onClick={handleLiveFAB} className="fixed bottom-20 right-5 w-16 h-16 bg-brand-yellow rounded-full shadow-lg flex flex-col items-center justify-center gap-0.5 hover:brightness-95 transition z-50" aria-label="Connect with a live peer navigator">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 18v-1a5 5 0 0 1 5-5h8a5 5 0 0 1 5 5v1" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-          <span className="text-[9px] font-bold text-gray-900 tracking-widest">LIVE</span>
-        </button>
-      )}
+    </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <div className="h-screen w-full">
+      <ChatContent />
     </div>
   );
 }

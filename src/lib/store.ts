@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { toast } from "sonner";
 import { MOCK_NAVIGATORS, MOCK_SESSIONS } from "./mockData";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +32,9 @@ export interface Navigator {
   id: string;
   name: string;
   avatarInitials: string;
+  specialties: ReferralCategory[];
+  capacity: number;
+  available: boolean;
 }
 
 export interface Referral {
@@ -50,13 +54,30 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   timestamp: string;
+  serviceId?: string;
+}
+
+export interface SessionEvent {
+  id: string;
+  type: "created" | "assigned" | "transferred" | "closed";
+  actorName: string;
+  timestamp: string;
+  note?: string;
+}
+
+export interface SessionLog {
+  outcome: ("referrals_shared" | "information_only" | "follow_up_needed")[];
+  referralsShared: string[];
+  notes: string;
+  followUp: boolean;
+  followUpDate?: string;
 }
 
 export interface Session {
   id: string;
   userId: string;
   userDisplayName: string;
-  navigatorId: string;
+  navigatorId: string | null;
   navigatorName: string;
   status: SessionStatus;
   startedAt: string;
@@ -64,6 +85,31 @@ export interface Session {
   summary?: string;
   topics: string[];
   referrals: Referral[];
+  assignedByRouting: boolean;
+  events: SessionEvent[];
+  logged?: boolean;
+  sessionLog?: SessionLog;
+}
+
+// ─── Routing ──────────────────────────────────────────────────────────────────
+
+export function routeSession(
+  needCategory: string,
+  navigators: Navigator[],
+  sessions: Session[]
+): string | null {
+  const pool = navigators.filter((n) => n.available);
+  const matching = pool.filter((n) =>
+    n.specialties.some((s) => s.toLowerCase() === needCategory.toLowerCase())
+  );
+  const candidates = matching.length > 0 ? matching : pool;
+  if (candidates.length === 0) return null;
+  return [...candidates].sort((a, b) => {
+    const load = (nav: Navigator) =>
+      sessions.filter((s) => s.navigatorId === nav.id && s.status === "active").length /
+      nav.capacity;
+    return load(a) - load(b);
+  })[0].id;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -78,8 +124,9 @@ interface StreetLivesStore {
   createSession: (
     userId: string,
     userDisplayName: string,
-    navigatorId: string,
-    topic: string
+    navigatorId: string | null,
+    topic: string,
+    assignedByRouting?: boolean
   ) => Session;
   updateSessionStatus: (
     sessionId: string,
@@ -87,6 +134,10 @@ interface StreetLivesStore {
     summary?: string
   ) => void;
   endSession: (sessionId: string, summary?: string) => void;
+  assignSession: (sessionId: string, navigatorId: string) => void;
+  transferSession: (sessionId: string, navigatorId: string) => void;
+  rerouteSession: (sessionId: string) => void;
+  logSession: (sessionId: string, log: SessionLog) => void;
 
   addReferral: (
     sessionId: string,
@@ -106,112 +157,203 @@ interface StreetLivesStore {
 export const useStore = create<StreetLivesStore>()(
   persist(
     (set, get) => ({
-  activeRole: "user",
-  setRole: (role) => set({ activeRole: role }),
+      activeRole: "user",
+      setRole: (role) => set({ activeRole: role }),
 
-  navigators: MOCK_NAVIGATORS,
-  sessions: MOCK_SESSIONS,
+      navigators: MOCK_NAVIGATORS,
+      sessions: MOCK_SESSIONS,
 
-  createSession: (userId, userDisplayName, navigatorId, topic) => {
-    const navigator = get().navigators.find((n) => n.id === navigatorId);
-    const session: Session = {
-      id: crypto.randomUUID(),
-      userId,
-      userDisplayName,
-      navigatorId,
-      navigatorName: navigator?.name ?? "Peer Navigator",
-      status: "active",
-      startedAt: new Date().toISOString(),
-      topics: [topic],
-      referrals: [],
-    };
-    set((state) => ({ sessions: [session, ...state.sessions] }));
-    return session;
-  },
-
-  updateSessionStatus: (sessionId, status, summary) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === sessionId
-          ? {
-              ...s,
-              status,
-              ...(summary !== undefined ? { summary } : {}),
-              ...(status === "closed" ? { closedAt: new Date().toISOString() } : {}),
-            }
-          : s
-      ),
-    })),
-
-  endSession: (sessionId, summary) => {
-    get().updateSessionStatus(sessionId, "closed", summary);
-  },
-
-  addReferral: (sessionId, partial) => {
-    const referral: Referral = {
-      ...partial,
-      id: crypto.randomUUID(),
-      sessionId,
-      sharedAt: new Date().toISOString(),
-    };
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === sessionId
-          ? { ...s, referrals: [...s.referrals, referral] }
-          : s
-      ),
-    }));
-  },
-
-  updateReferralStatus: (referralId, status) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) => ({
-        ...s,
-        referrals: s.referrals.map((r) =>
-          r.id === referralId ? { ...r, status } : r
-        ),
-      })),
-    })),
-
-  getSessionById: (id) => get().sessions.find((s) => s.id === id),
-  getSessionsForNavigator: (navigatorId) =>
-    get().sessions.filter((s) => s.navigatorId === navigatorId),
-  getActiveSessionsForUser: (userId) =>
-    get().sessions.filter((s) => s.userId === userId && s.status !== "closed"),
-
-  chatMessages: {},
-  addChatMessage: (sessionId, msg) => {
-    const message: ChatMessage = {
-      ...msg,
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    };
-    set((state) => ({
-      chatMessages: {
-        ...state.chatMessages,
-        [sessionId]: [...(state.chatMessages[sessionId] ?? []), message],
+      createSession: (userId, userDisplayName, navigatorId, topic, assignedByRouting = false) => {
+        const navigator = navigatorId
+          ? get().navigators.find((n) => n.id === navigatorId)
+          : undefined;
+        const now = new Date().toISOString();
+        const session: Session = {
+          id: crypto.randomUUID(),
+          userId,
+          userDisplayName,
+          navigatorId,
+          navigatorName: navigator?.name ?? "",
+          status: "active",
+          startedAt: now,
+          topics: [topic],
+          referrals: [],
+          assignedByRouting,
+          events: [
+            { id: crypto.randomUUID(), type: "created", actorName: "System", timestamp: now },
+            ...(navigator
+              ? [{ id: crypto.randomUUID(), type: "assigned" as const, actorName: "System", timestamp: now, note: `Assigned to ${navigator.name}` }]
+              : []),
+          ],
+        };
+        set((state) => ({ sessions: [session, ...state.sessions] }));
+        return session;
       },
-    }));
-  },
-  seedChatMessages: (sessionId, msgs) => {
-    const messages: ChatMessage[] = msgs.map((m) => ({
-      ...m,
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    }));
-    set((state) => ({
-      chatMessages: {
-        ...state.chatMessages,
-        [sessionId]: [...(state.chatMessages[sessionId] ?? []), ...messages],
+
+      updateSessionStatus: (sessionId, status, summary) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  status,
+                  ...(summary !== undefined ? { summary } : {}),
+                  ...(status === "closed" ? { closedAt: new Date().toISOString() } : {}),
+                }
+              : s
+          ),
+        })),
+
+      endSession: (sessionId, summary) => {
+        const session = get().sessions.find((s) => s.id === sessionId);
+        const actorName = session?.navigatorName || "Navigator";
+        const now = new Date().toISOString();
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  status: "closed",
+                  closedAt: now,
+                  ...(summary !== undefined ? { summary } : {}),
+                  events: [
+                    ...s.events,
+                    { id: crypto.randomUUID(), type: "closed" as const, actorName, timestamp: now },
+                  ],
+                }
+              : s
+          ),
+        }));
       },
-    }));
-  },
+
+      assignSession: (sessionId, navigatorId) => {
+        const navigator = get().navigators.find((n) => n.id === navigatorId);
+        if (!navigator) return;
+        const now = new Date().toISOString();
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  navigatorId,
+                  navigatorName: navigator.name,
+                  events: [
+                    ...s.events,
+                    { id: crypto.randomUUID(), type: "assigned" as const, actorName: navigator.name, timestamp: now, note: `Assigned to ${navigator.name}` },
+                  ],
+                }
+              : s
+          ),
+        }));
+      },
+
+      transferSession: (sessionId, navigatorId) => {
+        const navigator = get().navigators.find((n) => n.id === navigatorId);
+        if (!navigator) return;
+        const session = get().sessions.find((s) => s.id === sessionId);
+        const actorName = session?.navigatorName || "Navigator";
+        const now = new Date().toISOString();
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  navigatorId,
+                  navigatorName: navigator.name,
+                  events: [
+                    ...s.events,
+                    { id: crypto.randomUUID(), type: "transferred" as const, actorName, timestamp: now, note: `Transferred to ${navigator.name}` },
+                  ],
+                }
+              : s
+          ),
+        }));
+        toast.success(`Transferred to ${navigator.name}`);
+      },
+
+      rerouteSession: (sessionId) => {
+        const session = get().sessions.find((s) => s.id === sessionId);
+        if (!session) return;
+        const category = session.topics[0] ?? "Other";
+        const { navigators, sessions } = get();
+        const newNavId = routeSession(category, navigators, sessions);
+        if (!newNavId || newNavId === session.navigatorId) {
+          toast("Already assigned to the best-fit navigator");
+          return;
+        }
+        get().transferSession(sessionId, newNavId);
+      },
+
+      logSession: (sessionId, log) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, logged: true, sessionLog: log } : s
+          ),
+        })),
+
+      addReferral: (sessionId, partial) => {
+        const referral: Referral = {
+          ...partial,
+          id: crypto.randomUUID(),
+          sessionId,
+          sharedAt: new Date().toISOString(),
+        };
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? { ...s, referrals: [...s.referrals, referral] }
+              : s
+          ),
+        }));
+      },
+
+      updateReferralStatus: (referralId, status) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) => ({
+            ...s,
+            referrals: s.referrals.map((r) =>
+              r.id === referralId ? { ...r, status } : r
+            ),
+          })),
+        })),
+
+      getSessionById: (id) => get().sessions.find((s) => s.id === id),
+      getSessionsForNavigator: (navigatorId) =>
+        get().sessions.filter((s) => s.navigatorId === navigatorId),
+      getActiveSessionsForUser: (userId) =>
+        get().sessions.filter((s) => s.userId === userId && s.status !== "closed"),
+
+      chatMessages: {},
+      addChatMessage: (sessionId, msg) => {
+        const message: ChatMessage = {
+          ...msg,
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+        };
+        set((state) => ({
+          chatMessages: {
+            ...state.chatMessages,
+            [sessionId]: [...(state.chatMessages[sessionId] ?? []), message],
+          },
+        }));
+      },
+      seedChatMessages: (sessionId, msgs) => {
+        const messages: ChatMessage[] = msgs.map((m) => ({
+          ...m,
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+        }));
+        set((state) => ({
+          chatMessages: {
+            ...state.chatMessages,
+            [sessionId]: [...(state.chatMessages[sessionId] ?? []), ...messages],
+          },
+        }));
+      },
     }),
     {
-      name: "streetlives-store-v3",
+      name: "streetlives-store-v5",
       storage: createJSONStorage(() => localStorage),
-      // Only persist shared data — activeRole stays per-tab so each tab can
-      // independently act as User, Navigator, or Supervisor
       partialize: (state) => ({
         sessions: state.sessions,
         chatMessages: state.chatMessages,
