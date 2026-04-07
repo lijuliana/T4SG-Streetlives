@@ -13,8 +13,8 @@ export const MOCK_NAVIGATORS: Navigator[] = [
   },
   {
     id: "nav-2",
-    name: "Marcus D.",
-    avatarInitials: "MD",
+    name: "Marcus Thompson",
+    avatarInitials: "MT",
     specialties: ["Health", "Legal", "Work"],
     capacity: 3,
     available: true,
@@ -31,7 +31,7 @@ export const MOCK_SESSIONS: Session[] = [
   {
     id: "ses-1",
     userId: "user-1",
-    userDisplayName: "Jordan M.",
+    userDisplayName: "Jordan Mitchell",
     navigatorId: "nav-1",
     navigatorName: "Jenna Rivera",
     status: "active",
@@ -57,14 +57,14 @@ export const MOCK_SESSIONS: Session[] = [
   {
     id: "ses-2",
     userId: "user-2",
-    userDisplayName: "Aaliyah R.",
+    userDisplayName: "Aaliyah Robinson",
     navigatorId: "nav-1",
     navigatorName: "Jenna Rivera",
     status: "closed",
     startedAt: days(2),
     closedAt: days(2),
     topics: ["food"],
-    summary: "Connected Aaliyah with local food pantry. She plans to visit Friday.",
+    summary: "Connected Aaliyah Robinson with local food pantry. She plans to visit Friday.",
     assignedByRouting: true,
     events: [
       { id: "e-ses2-1", type: "created", actorName: "System", timestamp: days(2) },
@@ -85,16 +85,16 @@ export const MOCK_SESSIONS: Session[] = [
   {
     id: "ses-3",
     userId: "user-3",
-    userDisplayName: "Darius K.",
+    userDisplayName: "Darius King",
     navigatorId: "nav-2",
-    navigatorName: "Marcus D.",
+    navigatorName: "Marcus Thompson",
     status: "active",
     startedAt: mins(45),
     topics: ["health"],
     assignedByRouting: true,
     events: [
       { id: "e-ses3-1", type: "created", actorName: "System", timestamp: mins(45) },
-      { id: "e-ses3-2", type: "assigned", actorName: "System", timestamp: mins(45), note: "Assigned to Marcus D." },
+      { id: "e-ses3-2", type: "assigned", actorName: "System", timestamp: mins(45), note: "Assigned to Marcus Thompson" },
     ],
     referrals: [
       {
@@ -111,7 +111,7 @@ export const MOCK_SESSIONS: Session[] = [
   {
     id: "ses-4",
     userId: "user-4",
-    userDisplayName: "Elena V.",
+    userDisplayName: "Elena Vasquez",
     navigatorId: null,
     navigatorName: "",
     status: "active",

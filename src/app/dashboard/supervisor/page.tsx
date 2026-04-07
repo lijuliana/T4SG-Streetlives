@@ -34,6 +34,7 @@ function NavigatorRow({ navigator }: { navigator: Navigator }) {
   const activeCount = sessions.filter((s) => s.status === "active" || s.status === "queued").length;
   const closedCount = sessions.filter((s) => s.status === "closed").length;
   const isHighLoad = navigator.capacity > 0 && activeCount / navigator.capacity > 0.75;
+  const hasSubmitted = sessions.some((s) => s.reviewStatus === "submitted");
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -53,7 +54,12 @@ function NavigatorRow({ navigator }: { navigator: Navigator }) {
 
         {/* Name + load */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900">{navigator.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium text-gray-900">{navigator.name}</p>
+            {hasSubmitted && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+            )}
+          </div>
           <div className="flex gap-2 mt-0.5 items-center">
             <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
               {activeCount} active
@@ -117,11 +123,12 @@ export default function SupervisorDashboardPage() {
     (s) => s.status === "closed" && moment(s.closedAt).isAfter(today)
   ).length;
   const totalReferrals = sessions.reduce((sum, s) => sum + s.referrals.length, 0);
+  const awaitingReview = sessions.filter((s) => s.reviewStatus === "submitted").length;
 
   return (
     <DashboardShell title="Overview" role="supervisor">
       {/* Metrics grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
           <p className="text-3xl font-normal text-gray-900">{totalSessions}</p>
           <p className="text-xs text-gray-500 mt-1">Total Sessions</p>
@@ -141,6 +148,10 @@ export default function SupervisorDashboardPage() {
         <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
           <p className="text-3xl font-normal text-blue-600">{totalReferrals}</p>
           <p className="text-xs text-gray-500 mt-1">Total Referrals</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
+          <p className={`text-3xl font-normal ${awaitingReview > 0 ? "text-amber-600" : "text-gray-900"}`}>{awaitingReview}</p>
+          <p className={`text-xs mt-1 ${awaitingReview > 0 ? "text-amber-600 font-medium" : "text-gray-500"}`}>Awaiting Review</p>
         </div>
       </div>
 

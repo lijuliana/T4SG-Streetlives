@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Plus, MessageSquare, Circle, UserPlus, ArrowRight, CheckCircle } from "lucide-react";
 import moment from "moment";
 import { useStore } from "@/lib/store";
-import type { SessionEvent } from "@/lib/store";
+import type { SessionEvent, SessionLog } from "@/lib/store";
 import DashboardShell from "@/components/DashboardShell";
 import SessionStatusBadge from "@/components/SessionStatusBadge";
 import ReferralCard from "@/components/ReferralCard";
@@ -43,12 +43,25 @@ export default function NavigatorSessionDetailPage() {
   const rerouteSession = useStore((s) => s.rerouteSession);
   const activeRole = useStore((s) => s.activeRole);
   const chatMessageCount = useStore((s) => s.chatMessages[sessionId]?.length ?? 0);
+  const logSession = useStore((s) => s.logSession);
+  const submitForReview = useStore((s) => s.submitForReview);
+  const approveSession = useStore((s) => s.approveSession);
+  const returnSession = useStore((s) => s.returnSession);
 
   const session = getSessionById(sessionId);
 
   const [referralOpen, setReferralOpen] = useState(false);
   const [summaryText, setSummaryText] = useState(session?.summary ?? "");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  // Wrap-up form state
+  const [wrapOutcome, setWrapOutcome] = useState<SessionLog["outcome"]>([]);
+  const [wrapNotes, setWrapNotes] = useState("");
+  const [wrapFollowUp, setWrapFollowUp] = useState(false);
+  const [wrapFollowUpDate, setWrapFollowUpDate] = useState("");
+
+  // Supervisor review state
+  const [coachingNote, setCoachingNote] = useState(session?.supervisorNote ?? "");
 
   if (!session) {
     return (
@@ -67,11 +80,20 @@ export default function NavigatorSessionDetailPage() {
   const isUnassigned = session.navigatorId === null;
   const isMySession = session.navigatorId === DEMO_NAVIGATOR_ID;
 
+  const wrapOutcomeValid = wrapOutcome.length > 0;
+
   const handleClose = () => {
-    endSession(session.id, summaryText || undefined);
-    toast.success("Session closed");
+    endSession(session.id, wrapNotes || undefined);
+    logSession(session.id, {
+      outcome: wrapOutcome,
+      referralsShared: session.referrals.map((r) => r.serviceName),
+      notes: wrapNotes,
+      followUp: wrapFollowUp || wrapOutcome.includes("follow_up_needed"),
+      followUpDate: wrapFollowUpDate || undefined,
+    });
+    submitForReview(session.id);
+    toast.success("Session closed and submitted for review");
     setShowCloseConfirm(false);
-    router.push("/dashboard/navigator");
   };
 
   const otherNavigators = navigators.filter((n) => n.id !== session.navigatorId);
@@ -120,9 +142,9 @@ export default function NavigatorSessionDetailPage() {
           ) : (
             <p className="text-amber-500">Unassigned</p>
           )}
-          <p>Started {moment(session.startedAt).format("MMM D, YYYY [at] h:mm A")}</p>
+          <p suppressHydrationWarning>Started {moment(session.startedAt).format("MMM D, YYYY [at] h:mm A")}</p>
           {session.closedAt && (
-            <p>Closed {moment(session.closedAt).format("MMM D, YYYY [at] h:mm A")}</p>
+            <p suppressHydrationWarning>Closed {moment(session.closedAt).format("MMM D, YYYY [at] h:mm A")}</p>
           )}
         </div>
       </div>
@@ -133,11 +155,11 @@ export default function NavigatorSessionDetailPage() {
           type="button"
           onClick={() => {
             assignSession(session.id, DEMO_NAVIGATOR_ID);
-            toast.success("Session assigned to you");
+            toast.success("Session accepted");
           }}
           className="w-full bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition"
         >
-          Assign to Me
+          Accept Session
         </button>
       )}
 
@@ -164,8 +186,8 @@ export default function NavigatorSessionDetailPage() {
         </div>
       )}
 
-      {/* Transfer + Re-run routing — active assigned sessions, navigator or supervisor */}
-      {!isClosed && !isUnassigned && (isMySession || isSupervisor) && (
+      {/* Transfer + Re-run routing — supervisor only */}
+      {!isClosed && !isUnassigned && isSupervisor && (
         <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-3">
           <p className="text-xs font-normal text-gray-500 uppercase tracking-wide">Routing</p>
           <div className="flex gap-2">
@@ -206,17 +228,75 @@ export default function NavigatorSessionDetailPage() {
         </div>
       )}
 
-      {/* Close confirm panel */}
+      {/* Wrap-up form */}
       {showCloseConfirm && (
-        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-3">
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-4">
           <p className="text-sm font-medium text-gray-900">Close this session?</p>
-          <textarea
-            value={summaryText}
-            onChange={(e) => setSummaryText(e.target.value)}
-            rows={3}
-            placeholder="Session summary (optional)..."
-            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow placeholder-gray-400 resize-none"
-          />
+
+          {/* Outcome checkboxes */}
+          <div>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">
+              Outcome <span className="text-red-400 normal-case font-normal">* required</span>
+            </p>
+            <div className="space-y-2">
+              {(
+                [
+                  { value: "referrals_shared", label: "Referrals shared" },
+                  { value: "information_only", label: "Information only" },
+                  { value: "follow_up_needed", label: "Follow-up needed" },
+                ] as { value: SessionLog["outcome"][number]; label: string }[]
+              ).map(({ value, label }) => (
+                <label key={value} className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={wrapOutcome.includes(value)}
+                    onChange={(e) =>
+                      setWrapOutcome((prev) =>
+                        e.target.checked ? [...prev, value] : prev.filter((v) => v !== value)
+                      )
+                    }
+                    className="w-4 h-4 rounded accent-gray-900"
+                  />
+                  <span className="text-sm text-gray-700">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Notes</p>
+            <textarea
+              value={wrapNotes}
+              onChange={(e) => setWrapNotes(e.target.value)}
+              rows={3}
+              placeholder="Session notes (optional)..."
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow placeholder-gray-400 resize-none"
+            />
+          </div>
+
+          {/* Follow-up toggle + date */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wrapFollowUp || wrapOutcome.includes("follow_up_needed")}
+                onChange={(e) => setWrapFollowUp(e.target.checked)}
+                className="w-4 h-4 rounded accent-gray-900"
+              />
+              <span className="text-sm text-gray-700">Schedule follow-up</span>
+            </label>
+            {(wrapFollowUp || wrapOutcome.includes("follow_up_needed")) && (
+              <input
+                type="date"
+                aria-label="Follow-up date"
+                value={wrapFollowUpDate}
+                onChange={(e) => setWrapFollowUpDate(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow"
+              />
+            )}
+          </div>
+
           <div className="flex gap-2">
             <button
               type="button"
@@ -228,10 +308,49 @@ export default function NavigatorSessionDetailPage() {
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition"
+              disabled={!wrapOutcomeValid}
+              className="flex-1 bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Confirm Close
+              Close & Submit for Review
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Outcome Log — read-only, shown when session is closed and logged */}
+      {isClosed && session.logged && session.sessionLog && (
+        <div>
+          <h2 className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">
+            Outcome Log
+          </h2>
+          <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {session.sessionLog.outcome.map((o) => (
+                <span key={o} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full capitalize">
+                  {o === "referrals_shared" ? "Referrals shared" : o === "information_only" ? "Information only" : "Follow-up needed"}
+                </span>
+              ))}
+            </div>
+            {session.sessionLog.notes && (
+              <p className="text-sm text-gray-700">{session.sessionLog.notes}</p>
+            )}
+            {session.sessionLog.followUp && (
+              <p className="text-xs text-amber-600 font-medium">
+                Follow-up scheduled{session.sessionLog.followUpDate ? `: ${moment(session.sessionLog.followUpDate).format("MMM D, YYYY")}` : ""}
+              </p>
+            )}
+            {session.sessionLog.referralsShared.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Referrals at close</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {session.sessionLog.referralsShared.map((name) => (
+                    <span key={name} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -323,7 +442,7 @@ export default function NavigatorSessionDetailPage() {
                     {EVENT_LABELS[event.type]}
                     {event.note ? ` — ${event.note}` : ""}
                   </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-400 mt-0.5" suppressHydrationWarning>
                     {moment(event.timestamp).format("MMM D [at] h:mm A")} · {event.actorName}
                   </p>
                 </div>
@@ -332,6 +451,89 @@ export default function NavigatorSessionDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Review status — navigator view, after closing */}
+      {!isSupervisor && isClosed && session.logged && (
+        <div>
+          {session.reviewStatus === "returned" && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3 space-y-1">
+              <p className="text-xs font-medium text-red-600">Returned by supervisor</p>
+              <p className="text-sm text-red-700">{session.supervisorReturnNote}</p>
+            </div>
+          )}
+          {session.reviewStatus === "approved" && (
+            <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-3 text-center">
+              <p className="text-xs font-medium text-green-600">
+                Approved by supervisor{session.reviewedAt ? ` · ${moment(session.reviewedAt).format("MMM D, YYYY")}` : ""}
+              </p>
+              {session.supervisorNote && (
+                <p className="text-sm text-gray-700 mt-1">{session.supervisorNote}</p>
+              )}
+            </div>
+          )}
+          {session.reviewStatus === "submitted" && (
+            <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 text-center">
+              <p className="text-xs text-gray-400">Awaiting supervisor review</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Supervisor Review — approve or return */}
+      {isSupervisor && isClosed && session.logged && session.reviewStatus !== "approved" && session.reviewStatus !== "returned" && (
+        <div>
+          <h2 className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">
+            Supervisor Review
+          </h2>
+          <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-3">
+            <textarea
+              value={coachingNote}
+              onChange={(e) => setCoachingNote(e.target.value)}
+              rows={3}
+              placeholder="Coaching notes (optional for approval, required to return)..."
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow placeholder-gray-400 resize-none"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!coachingNote.trim()}
+                onClick={() => { returnSession(session.id, coachingNote); toast.success("Returned to navigator"); }}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Return to Navigator
+              </button>
+              <button
+                type="button"
+                onClick={() => { approveSession(session.id, coachingNote); toast.success("Session approved"); }}
+                className="flex-1 bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition"
+              >
+                Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supervisor Review — read-only after decision */}
+      {isSupervisor && (session.reviewStatus === "approved" || session.reviewStatus === "returned") && (
+        <div>
+          <h2 className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">
+            Supervisor Review
+          </h2>
+          <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-2">
+            {session.reviewStatus === "approved" ? (
+              <p className="text-xs text-green-600 font-medium" suppressHydrationWarning>
+                Approved{session.reviewedAt ? ` · ${moment(session.reviewedAt).format("MMM D, YYYY [at] h:mm A")}` : ""}
+              </p>
+            ) : (
+              <p className="text-xs text-red-500 font-medium">Returned to navigator</p>
+            )}
+            {session.supervisorNote && (
+              <p className="text-sm text-gray-700">{session.supervisorNote}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <ReferralForm
         sessionId={session.id}

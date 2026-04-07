@@ -83,7 +83,7 @@ export function ChatContent({ onClose }: { onClose?: () => void } = {}) {
   const seedChatMessages = useStore((s) => s.seedChatMessages);
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [routedNavName, setRoutedNavName] = useState("Jenna");
+  const [routedNavName, setRoutedNavName] = useState("Jenna Rivera");
 
   // Watch session status so we can detect when navigator closes the session
   const sessionStatus = useStore((s) =>

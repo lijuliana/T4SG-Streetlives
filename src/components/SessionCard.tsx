@@ -21,6 +21,8 @@ export default function SessionCard({ session, viewerRole, index = 0 }: Props) {
       : `/dashboard/user/${session.id}`;
 
   const isUnassigned = session.navigatorId === null;
+  const awaitingReview = session.reviewStatus === "submitted";
+  const returned = session.reviewStatus === "returned";
 
   const primaryName =
     viewerRole === "navigator" || viewerRole === "supervisor"
@@ -77,9 +79,19 @@ export default function SessionCard({ session, viewerRole, index = 0 }: Props) {
               {t}
             </span>
           ))}
-          {session.assignedByRouting && (
+          {session.assignedByRouting && viewerRole === "supervisor" && (
             <span className="text-[10px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full">
               Routed
+            </span>
+          )}
+          {awaitingReview && viewerRole === "supervisor" && (
+            <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">
+              Needs Review
+            </span>
+          )}
+          {returned && viewerRole === "navigator" && (
+            <span className="text-[10px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full font-medium">
+              Returned
             </span>
           )}
           <span className="text-xs text-gray-400">

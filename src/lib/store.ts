@@ -89,6 +89,10 @@ export interface Session {
   events: SessionEvent[];
   logged?: boolean;
   sessionLog?: SessionLog;
+  reviewStatus?: "submitted" | "approved" | "returned";
+  supervisorNote?: string;
+  supervisorReturnNote?: string;
+  reviewedAt?: string;
 }
 
 // ─── Routing ──────────────────────────────────────────────────────────────────
@@ -138,6 +142,9 @@ interface StreetLivesStore {
   transferSession: (sessionId: string, navigatorId: string) => void;
   rerouteSession: (sessionId: string) => void;
   logSession: (sessionId: string, log: SessionLog) => void;
+  submitForReview: (sessionId: string) => void;
+  approveSession: (sessionId: string, note: string) => void;
+  returnSession: (sessionId: string, note: string) => void;
 
   addReferral: (
     sessionId: string,
@@ -291,6 +298,31 @@ export const useStore = create<StreetLivesStore>()(
           ),
         })),
 
+      submitForReview: (sessionId) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, reviewStatus: "submitted" } : s
+          ),
+        })),
+
+      approveSession: (sessionId, note) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? { ...s, reviewStatus: "approved", supervisorNote: note, reviewedAt: new Date().toISOString() }
+              : s
+          ),
+        })),
+
+      returnSession: (sessionId, note) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? { ...s, reviewStatus: "returned", supervisorReturnNote: note }
+              : s
+          ),
+        })),
+
       addReferral: (sessionId, partial) => {
         const referral: Referral = {
           ...partial,
@@ -352,7 +384,7 @@ export const useStore = create<StreetLivesStore>()(
       },
     }),
     {
-      name: "streetlives-store-v5",
+      name: "streetlives-store-v7",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         sessions: state.sessions,
