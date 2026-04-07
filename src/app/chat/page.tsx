@@ -122,17 +122,20 @@ export function ChatContent({ onClose }: { onClose?: () => void } = {}) {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    // Restore an active session from the store (persisted in localStorage via Zustand).
-    // This means logged-in users automatically get their session back across page loads.
-    // Logged-out users (no session in store) always see the fresh greeting.
-    const existingSession = useStore.getState().sessions.find(
-      (s) => s.userId === "user-1" && s.status !== "closed"
-    );
-    if (existingSession) {
-      setActiveSessionId(existingSession.id);
-      setChatState("live");
-      if (existingSession.navigatorName) setRoutedNavName(existingSession.navigatorName.split(" ")[0]);
-      return;
+    // Restore the chat session for this browser tab only (sessionStorage).
+    // sessionStorage is cleared when the tab closes, so logged-out users always
+    // get a fresh greeting. Logged-in users keep their chat within the same tab.
+    const storedId = sessionStorage.getItem("chat_session_id");
+    if (storedId) {
+      const state = useStore.getState();
+      const session = state.sessions.find((s) => s.id === storedId && s.status !== "closed");
+      if (session) {
+        setActiveSessionId(storedId);
+        setChatState("live");
+        if (session.navigatorName) setRoutedNavName(session.navigatorName.split(" ")[0]);
+        return;
+      }
+      sessionStorage.removeItem("chat_session_id");
     }
 
     setTimeout(() => addLocalMessage({ role: "bot", content: "Hi, we're here to help guide you through this service" }), 300);
@@ -174,6 +177,7 @@ export function ChatContent({ onClose }: { onClose?: () => void } = {}) {
 
               const newSession = createSession("user-1", "Jordan M.", routedNav.id, selectedTopic, true);
               setActiveSessionId(newSession.id);
+              sessionStorage.setItem("chat_session_id", newSession.id);
               seedChatMessages(newSession.id, localMessagesRef.current.map((m) => ({ role: m.role, content: m.content, serviceId: m.serviceId })));
 
               setTimeout(() => inputRef.current?.focus(), 100);
@@ -214,6 +218,7 @@ export function ChatContent({ onClose }: { onClose?: () => void } = {}) {
   };
 
   const handleStartNewChat = () => {
+    sessionStorage.removeItem("chat_session_id");
     window.location.reload();
   };
 
