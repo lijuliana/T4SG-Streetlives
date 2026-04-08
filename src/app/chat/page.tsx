@@ -75,7 +75,7 @@ function NavigatorAvatar() {
   );
 }
 
-export function ChatContent() {
+export function ChatContent({ onClose }: { onClose?: () => void } = {}) {
   const router = useRouter();
 
   const createSession = useStore((s) => s.createSession);
@@ -83,7 +83,7 @@ export function ChatContent() {
   const seedChatMessages = useStore((s) => s.seedChatMessages);
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [routedNavName, setRoutedNavName] = useState("Jenna");
+  const [routedNavName, setRoutedNavName] = useState("Jenna Rivera");
 
   // Watch session status so we can detect when navigator closes the session
   const sessionStatus = useStore((s) =>
@@ -122,10 +122,13 @@ export function ChatContent() {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    // Restore an in-progress session if one was saved (e.g. user navigated away and back)
+    // Restore the chat session for this browser tab only (sessionStorage).
+    // sessionStorage is cleared when the tab closes, so logged-out users always
+    // get a fresh greeting. Logged-in users keep their chat within the same tab.
     const storedId = sessionStorage.getItem("chat_session_id");
     if (storedId) {
-      const session = useStore.getState().sessions.find((s) => s.id === storedId);
+      const state = useStore.getState();
+      const session = state.sessions.find((s) => s.id === storedId && s.status !== "closed");
       if (session) {
         setActiveSessionId(storedId);
         setChatState("live");
@@ -210,7 +213,8 @@ export function ChatContent() {
   };
 
   const handleEndChat = () => {
-    router.push("/");
+    if (onClose) onClose();
+    else router.push("/");
   };
 
   const handleStartNewChat = () => {
@@ -243,13 +247,13 @@ export function ChatContent() {
                 <button
                   type="button"
                   onClick={() => router.push(`/services/${msg.serviceId}`)}
-                  className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-2xl rounded-tl-sm text-left w-fit hover:brightness-95 transition"
+                  className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-md rounded-tl-sm text-left w-fit hover:brightness-95 transition"
                 >
                   <p className="font-medium">{msg.content}</p>
                   <p className="text-xs mt-0.5 underline">Click here for details →</p>
                 </button>
               ) : (
-                <div className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-2xl rounded-tl-sm w-fit">
+                <div className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-md rounded-tl-sm w-fit">
                   <p className="font-medium">{msg.content}</p>
                   <p className="text-xs mt-0.5 text-gray-700">Referral shared by your navigator</p>
                 </div>
@@ -263,7 +267,7 @@ export function ChatContent() {
       if (msg.role === "user") {
         return (
           <div key={msg.id} className="flex flex-col items-end mb-3 max-w-[80%] ml-auto">
-            <div className="bg-brand-yellow text-gray-900 text-sm px-4 py-2.5 rounded-2xl rounded-br-sm w-fit">
+            <div className="bg-brand-yellow text-gray-900 text-sm px-4 py-2.5 rounded-md rounded-br-sm w-fit">
               {msg.content}
             </div>
             {ts && <span className="text-[10px] text-gray-400 mt-1 mr-1">{ts}</span>}
@@ -282,7 +286,7 @@ export function ChatContent() {
             <div className="w-10 flex-shrink-0" />
           )}
           <div className="flex flex-col">
-            <div className="bg-white text-gray-900 text-sm px-4 py-2.5 rounded-2xl rounded-tl-sm shadow-sm w-fit">
+            <div className="bg-white text-gray-900 text-sm px-4 py-2.5 rounded-md rounded-tl-sm shadow-sm w-fit">
               {msg.content}
             </div>
             {ts && <span className="text-[10px] text-gray-400 mt-1 ml-1">{ts}</span>}
@@ -319,7 +323,7 @@ export function ChatContent() {
         {isTyping && (
           <div className="flex gap-3 mb-2">
             <div className="w-10 h-10 rounded-full bg-gray-300 flex-shrink-0" />
-            <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm flex gap-1 items-center">
+            <div className="bg-white px-4 py-3 rounded-md rounded-tl-sm shadow-sm flex gap-1 items-center">
               <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce typing-dot-1" />
               <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce typing-dot-2" />
               <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce typing-dot-3" />
@@ -333,7 +337,7 @@ export function ChatContent() {
       {chatState === "greeting" && (
         <div className="px-4 pb-3 flex flex-wrap gap-2 flex-shrink-0">
           {QUICK_REPLIES.map((chip) => (
-            <button type="button" key={chip} onClick={() => handleQuickReply(chip)} className="border border-brand-yellow text-gray-900 text-sm px-4 py-2 rounded-xl hover:bg-brand-yellow/10 transition">
+            <button type="button" key={chip} onClick={() => handleQuickReply(chip)} className="border border-brand-yellow text-gray-900 text-sm px-4 py-2 rounded-md hover:bg-brand-yellow/10 transition">
               {chip}
             </button>
           ))}
@@ -347,7 +351,7 @@ export function ChatContent() {
           <button
             type="button"
             onClick={handleStartNewChat}
-            className="inline-block bg-brand-yellow text-gray-900 text-sm font-medium px-5 py-2 rounded-xl hover:brightness-95 transition"
+            className="inline-block bg-brand-yellow text-gray-900 text-sm font-medium px-5 py-2 rounded-md hover:brightness-95 transition"
           >
             Start New Chat
           </button>
