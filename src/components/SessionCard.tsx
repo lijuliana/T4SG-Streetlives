@@ -91,7 +91,13 @@ export default function SessionCard({ session, viewerRole }: Props) {
       </div>
 
       {/* Badge */}
-      <SessionStatusBadge status={session.status} size="sm" />
+      {isUnassigned && viewerRole === "navigator" ? (
+        <span className="inline-flex items-center rounded-full font-medium px-2 py-0.5 text-xs bg-orange-100 text-orange-600">
+          New Request
+        </span>
+      ) : (
+        <SessionStatusBadge status={session.status} size="sm" />
+      )}
     </button>
   );
 }

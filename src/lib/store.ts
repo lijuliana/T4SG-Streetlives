@@ -59,7 +59,7 @@ export interface ChatMessage {
 
 export interface SessionEvent {
   id: string;
-  type: "created" | "assigned" | "transferred" | "closed";
+  type: "created" | "assigned" | "transferred" | "closed" | "returned";
   actorName: string;
   timestamp: string;
   note?: string;
@@ -316,11 +316,20 @@ export const useStore = create<StreetLivesStore>()(
 
       returnSession: (sessionId, note) =>
         set((state) => ({
-          sessions: state.sessions.map((s) =>
-            s.id === sessionId
-              ? { ...s, reviewStatus: "returned", supervisorReturnNote: note }
-              : s
-          ),
+          sessions: state.sessions.map((s) => {
+            if (s.id !== sessionId) return s;
+            const now = new Date().toISOString();
+            return {
+              ...s,
+              reviewStatus: "returned",
+              supervisorReturnNote: note,
+              status: "active",
+              events: [
+                ...s.events,
+                { id: crypto.randomUUID(), type: "returned" as const, actorName: "Supervisor", timestamp: now, note: note || undefined },
+              ],
+            };
+          }),
         })),
 
       addReferral: (sessionId, partial) => {
@@ -384,7 +393,7 @@ export const useStore = create<StreetLivesStore>()(
       },
     }),
     {
-      name: "streetlives-store-v9",
+      name: "streetlives-store-v10",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         sessions: state.sessions,

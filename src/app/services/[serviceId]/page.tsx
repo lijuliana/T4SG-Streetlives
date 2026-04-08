@@ -1,24 +1,26 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { MapPin, Clock, ShieldCheck, Bed } from "lucide-react";
 import DashboardShell from "@/components/DashboardShell";
 import { MOCK_SERVICES } from "@/lib/mockData";
 
 export default function ServiceDetailPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
+  const searchParams = useSearchParams();
+  const backHref = searchParams.get("back") ?? "/chat";
   const service = MOCK_SERVICES.find((s) => s.id === serviceId);
 
   if (!service) {
     return (
-      <DashboardShell title="Service Not Found" role="user" backHref="/chat">
+      <DashboardShell title="Service Not Found" backHref={backHref}>
         <p className="text-sm text-gray-500">This service could not be found.</p>
       </DashboardShell>
     );
   }
 
   return (
-    <DashboardShell title={service.name} role="user" backHref="/chat">
+    <DashboardShell title={service.name} backHref={backHref}>
       {/* Header card */}
       <div className="bg-white border border-gray-200 rounded-md px-5 py-4 space-y-3">
         <div>

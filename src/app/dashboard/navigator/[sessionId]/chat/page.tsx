@@ -109,7 +109,7 @@ export default function NavigatorChatPage() {
             {hasDetail ? (
               <button
                 type="button"
-                onClick={() => router.push(`/services/${msg.serviceId}`)}
+                onClick={() => router.push(`/services/${msg.serviceId}?back=/dashboard/navigator/${sessionId}/chat`)}
                 className="bg-brand-yellow text-gray-900 text-sm px-4 py-3 rounded-md rounded-br-sm text-left w-fit hover:brightness-95 transition"
               >
                 <p className="font-medium">{msg.content}</p>

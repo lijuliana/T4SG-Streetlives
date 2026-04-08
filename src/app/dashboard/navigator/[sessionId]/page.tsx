@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, MessageSquare, Circle, UserPlus, ArrowRight, CheckCircle } from "lucide-react";
+import { Plus, MessageSquare, Circle, UserPlus, ArrowRight, CheckCircle, RotateCcw } from "lucide-react";
 import moment from "moment";
 import { useStore } from "@/lib/store";
 import type { SessionEvent, SessionLog } from "@/lib/store";
@@ -19,6 +19,7 @@ const EVENT_LABELS: Record<SessionEvent["type"], string> = {
   assigned: "Assigned",
   transferred: "Transferred",
   closed: "Session closed",
+  returned: "Returned to navigator",
 };
 
 function EventIcon({ type }: { type: SessionEvent["type"] }) {
@@ -26,7 +27,40 @@ function EventIcon({ type }: { type: SessionEvent["type"] }) {
   if (type === "created") return <Circle size={14} className={`${cls} text-gray-400`} />;
   if (type === "assigned") return <UserPlus size={14} className={`${cls} text-blue-400`} />;
   if (type === "transferred") return <ArrowRight size={14} className={`${cls} text-amber-500`} />;
+  if (type === "returned") return <RotateCcw size={14} className={`${cls} text-orange-400`} />;
   return <CheckCircle size={14} className={`${cls} text-green-500`} />;
+}
+
+function TimelineEvent({ event }: { event: SessionEvent }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-start gap-2.5">
+      <EventIcon type={event.type} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm text-gray-700">{EVENT_LABELS[event.type]}</p>
+          {event.note && (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="text-[10px] text-gray-400 hover:text-gray-600 transition"
+            >
+              {open ? "▲" : "▼"}
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mt-0.5" suppressHydrationWarning>
+          {moment(event.timestamp).format("MMM D [at] h:mm A")} · {event.actorName}
+        </p>
+        {open && event.note && (
+          <div className="mt-1 bg-gray-50 rounded px-2 py-1">
+            <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">Notes</p>
+            <p className="text-xs text-gray-500">{event.note}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function NavigatorSessionDetailPage() {
@@ -435,18 +469,7 @@ export default function NavigatorSessionDetailPage() {
             <p className="text-sm text-gray-400">No events recorded.</p>
           ) : (
             session.events.map((event) => (
-              <div key={event.id} className="flex items-start gap-2.5">
-                <EventIcon type={event.type} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-700">
-                    {EVENT_LABELS[event.type]}
-                    {event.note ? ` — ${event.note}` : ""}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5" suppressHydrationWarning>
-                    {moment(event.timestamp).format("MMM D [at] h:mm A")} · {event.actorName}
-                  </p>
-                </div>
-              </div>
+              <TimelineEvent key={event.id} event={event} />
             ))
           )}
         </div>

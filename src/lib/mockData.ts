@@ -123,6 +123,21 @@ export const MOCK_SESSIONS: Session[] = [
     ],
     referrals: [],
   },
+  {
+    id: "ses-5",
+    userId: "user-5",
+    userDisplayName: "User #3317",
+    navigatorId: null,
+    navigatorName: "",
+    status: "active",
+    startedAt: mins(2),
+    topics: ["food", "health"],
+    assignedByRouting: false,
+    events: [
+      { id: "e-ses5-1", type: "created", actorName: "System", timestamp: mins(2) },
+    ],
+    referrals: [],
+  },
 ];
 
 // ─── Services ─────────────────────────────────────────────────────────────────

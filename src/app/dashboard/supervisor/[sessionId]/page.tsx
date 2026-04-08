@@ -16,7 +16,40 @@ const EVENT_LABELS: Record<SessionEvent["type"], string> = {
   assigned: "Assigned",
   transferred: "Transferred",
   closed: "Session closed",
+  returned: "Returned to navigator",
 };
+
+function SupervisorTimelineEvent({ event }: { event: SessionEvent }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-start gap-2.5">
+      <div className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-gray-200 mt-1" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm text-gray-700">{EVENT_LABELS[event.type]}</p>
+          {event.note && (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="text-[10px] text-gray-400 hover:text-gray-600 transition"
+            >
+              {open ? "▲" : "▼"}
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mt-0.5" suppressHydrationWarning>
+          {moment(event.timestamp).format("MMM D [at] h:mm A")} · {event.actorName}
+        </p>
+        {open && event.note && (
+          <div className="mt-1 bg-gray-50 rounded px-2 py-1">
+            <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">Notes</p>
+            <p className="text-xs text-gray-500">{event.note}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function SupervisorSessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -182,18 +215,7 @@ export default function SupervisorSessionDetailPage() {
             <p className="text-sm text-gray-400">No events recorded.</p>
           ) : (
             session.events.map((event) => (
-              <div key={event.id} className="flex items-start gap-2.5">
-                <div className="flex-shrink-0 mt-0.5 w-3.5 h-3.5 rounded-full bg-gray-200 mt-1" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-700">
-                    {EVENT_LABELS[event.type]}
-                    {event.note ? ` — ${event.note}` : ""}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5" suppressHydrationWarning>
-                    {moment(event.timestamp).format("MMM D [at] h:mm A")} · {event.actorName}
-                  </p>
-                </div>
-              </div>
+              <SupervisorTimelineEvent key={event.id} event={event} />
             ))
           )}
         </div>
@@ -215,7 +237,7 @@ export default function SupervisorSessionDetailPage() {
               <button
                 type="button"
                 disabled={!coachingNote.trim()}
-                onClick={() => { returnSession(session.id, coachingNote); toast.success("Returned to navigator"); }}
+                onClick={() => { returnSession(session.id, coachingNote); toast.success("Returned to navigator"); router.push("/dashboard/supervisor"); }}
                 className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-md hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Return to Navigator
