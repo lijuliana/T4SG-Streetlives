@@ -67,7 +67,6 @@ export default function NavigatorSessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
 
-  const allSessions = useStore((s) => s.sessions);
   const getSessionById = useStore((s) => s.getSessionById);
   const navigators = useStore((s) => s.navigators);
   const updateSessionStatus = useStore((s) => s.updateSessionStatus);
@@ -171,11 +170,9 @@ export default function NavigatorSessionDetailPage() {
           <SessionStatusBadge status={session.status} />
         </div>
         <div className="text-xs text-gray-400 space-y-0.5">
-          {session.navigatorId ? (
-            <p>Navigator: {session.navigatorName}</p>
-          ) : (
-            <p className="text-amber-500">Unassigned</p>
-          )}
+          <p suppressHydrationWarning className={session.navigatorId ? undefined : "text-amber-500"}>
+            {session.navigatorId ? `Navigator: ${session.navigatorName}` : "Unassigned"}
+          </p>
           <p suppressHydrationWarning>Started {moment(session.startedAt).format("MMM D, YYYY [at] h:mm A")}</p>
           {session.closedAt && (
             <p suppressHydrationWarning>Closed {moment(session.closedAt).format("MMM D, YYYY [at] h:mm A")}</p>
