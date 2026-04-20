@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { X } from "lucide-react";
-import { ChatContent } from "@/app/chat/page";
+import { ChatContent } from "@/components/ChatContent";
 
 type ChatFABProps = {
   /** When set, FAB opens the staff dashboard instead of anonymous chat (matches middleware). */
@@ -14,17 +14,15 @@ type ChatFABProps = {
 export default function ChatFAB({ staffDashboardHref = null }: ChatFABProps) {
   const [isDesktop, setIsDesktop] = useState(false);
   const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      {/* Desktop floating chat panel */}
-      {open && (
-        <div className="fixed bottom-20 right-4 w-[420px] h-[650px] rounded-md shadow-2xl overflow-hidden z-50 border border-gray-200 hidden lg:block">
-          <ChatContent onClose={() => setOpen(false)} />
-        </div>
-      )}
-
   const staffHref = staffDashboardHref ?? undefined;
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsDesktop(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   if (!isDesktop) {
     return (
@@ -53,8 +51,8 @@ export default function ChatFAB({ staffDashboardHref = null }: ChatFABProps) {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-6 w-[480px] h-[700px] rounded-2xl shadow-2xl overflow-hidden z-50 border border-gray-200">
-          <ChatContent />
+        <div className="fixed bottom-20 right-4 w-[420px] h-[650px] rounded-md shadow-2xl overflow-hidden z-50 border border-gray-200 hidden lg:block">
+          <ChatContent onClose={() => setOpen(false)} />
         </div>
       )}
 

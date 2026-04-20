@@ -3,6 +3,15 @@ import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import TestimonialCarousel from "@/components/TestimonialCarousel";
 import ChatFAB from "@/components/ChatFAB";
+import { auth0 } from "@/lib/auth0";
+
+const ROLES_CLAIM = "https://streetlives.app/roles";
+
+const ROLE_DASHBOARD: Record<string, string> = {
+  navigator: "/dashboard/navigator",
+  supervisor: "/dashboard/supervisor",
+  user: "/dashboard/user",
+};
 
 const services = [
   { icon: "/new-icons/house.svg",       name: "Accommodations",  description: "A place to stay, shelter, vouchers" },
