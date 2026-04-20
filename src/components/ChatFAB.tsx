@@ -6,7 +6,13 @@ import Image from "next/image";
 import { X } from "lucide-react";
 import { ChatContent } from "@/app/chat/page";
 
-export default function ChatFAB() {
+type ChatFABProps = {
+  /** When set, FAB opens the staff dashboard instead of anonymous chat (matches middleware). */
+  staffDashboardHref?: string | null;
+};
+
+export default function ChatFAB({ staffDashboardHref = null }: ChatFABProps) {
+  const [isDesktop, setIsDesktop] = useState(false);
   const [open, setOpen] = useState(false);
 
   return (
@@ -18,16 +24,40 @@ export default function ChatFAB() {
         </div>
       )}
 
-      {/* Mobile: link to full-screen chat page */}
+  const staffHref = staffDashboardHref ?? undefined;
+
+  if (!isDesktop) {
+    return (
       <Link
-        href="/chat"
-        className="fixed bottom-4 right-4 w-14 h-14 bg-brand-yellow rounded-full shadow-lg flex items-center justify-center hover:brightness-95 transition z-50 lg:hidden"
-        aria-label="Chat with a peer navigator"
+        href={staffHref ?? "/chat"}
+        className="fixed bottom-20 right-5 w-14 h-14 bg-brand-yellow rounded-full shadow-lg flex items-center justify-center hover:brightness-95 transition z-50"
+        aria-label={staffHref ? "Open dashboard" : "Chat with a peer navigator"}
       >
         <Image src="/new-icons/chat-search.svg" alt="" width={24} height={24} aria-hidden />
       </Link>
+    );
+  }
 
-      {/* Desktop: toggle button */}
+  if (staffHref) {
+    return (
+      <Link
+        href={staffHref}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-brand-yellow rounded-full shadow-lg flex items-center justify-center hover:brightness-95 transition z-50"
+        aria-label="Open dashboard"
+      >
+        <Image src="/new-icons/chat-search.svg" alt="" width={24} height={24} aria-hidden />
+      </Link>
+    );
+  }
+
+  return (
+    <>
+      {open && (
+        <div className="fixed bottom-24 right-6 w-[480px] h-[700px] rounded-2xl shadow-2xl overflow-hidden z-50 border border-gray-200">
+          <ChatContent />
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
