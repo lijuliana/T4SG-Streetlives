@@ -3,8 +3,6 @@ import { lambdaFetch } from "@/lib/lambda";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import moment from "moment";
-import DashboardShell from "@/components/DashboardShell";
-import SessionStatusBadge from "@/components/SessionStatusBadge";
 
 interface RealSession {
   id: string;
@@ -26,48 +24,56 @@ interface NavProfile {
   capacity: number;
 }
 
-function mapStatus(s: string): "queued" | "active" | "closed" {
-  if (s === "unassigned") return "queued";
-  if (s === "closed") return "closed";
-  return "active";
-}
-
 function SessionRow({ session }: { session: RealSession }) {
-  const status = mapStatus(session.status);
+  const isUnassigned = session.navigator_id === null;
+  const isClosed = session.status === "closed";
+
   return (
     <Link
       href={`/dashboard/navigator/${session.id}`}
-      className="block bg-white border border-gray-200 rounded-xl px-5 py-4 hover:border-gray-300 hover:shadow-md transition"
+      className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 hover:border-gray-300 hover:shadow-sm transition"
     >
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-brand-yellow flex items-center justify-center flex-shrink-0">
-          <span className="text-xs font-medium text-gray-900 capitalize">
-            {session.need_category.slice(0, 2).toUpperCase()}
+      <div className="w-9 h-9 rounded-full bg-brand-yellow flex items-center justify-center flex-shrink-0">
+        <span className="text-xs font-medium text-gray-900">
+          {session.need_category.slice(0, 2).toUpperCase()}
+        </span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-900 capitalize">
+          {session.need_category.replace(/_/g, " ")}
+        </p>
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          {session.language && (
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+              {session.language.toUpperCase()}
+            </span>
+          )}
+          {session.routing_reason && (
+            <span className="text-[10px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full">Routed</span>
+          )}
+          <span className="text-xs text-gray-400" suppressHydrationWarning>
+            {moment(session.created_at).calendar(null, {
+              sameDay: "[Today at] h:mm A",
+              lastDay: "[Yesterday at] h:mm A",
+              lastWeek: "MMM D [at] h:mm A",
+              sameElse: "MMM D, YYYY [at] h:mm A",
+            })}
           </span>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 capitalize">{session.need_category.replace("_", " ")}</p>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            {session.language && (
-              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                {session.language.toUpperCase()}
-              </span>
-            )}
-            {session.routing_reason && (
-              <span className="text-[10px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full">Routed</span>
-            )}
-            <span className="text-xs text-gray-400">
-              {moment(session.created_at).calendar(null, {
-                sameDay: "[Today at] h:mm A",
-                lastDay: "[Yesterday at] h:mm A",
-                lastWeek: "MMM D [at] h:mm A",
-                sameElse: "MMM D, YYYY [at] h:mm A",
-              })}
-            </span>
-          </div>
-        </div>
-        <SessionStatusBadge status={status} size="sm" />
       </div>
+      {isUnassigned ? (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-600">
+          New Request
+        </span>
+      ) : isClosed ? (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+          Closed
+        </span>
+      ) : (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+          Active
+        </span>
+      )}
     </Link>
   );
 }
@@ -84,8 +90,12 @@ export default async function NavigatorDashboardPage() {
   const sessionsBody = await sessionsRes.json().catch(() => [] as RealSession[]);
   const navsBody = await navsRes.json().catch(() => [] as NavProfile[]);
 
-  const allSessions: RealSession[] = sessionsRes.ok && Array.isArray(sessionsBody) ? sessionsBody : [];
-  const navigators: NavProfile[] = navsRes.ok && Array.isArray(navsBody) ? navsBody : [];
+  const allSessions: RealSession[] = sessionsRes.ok
+    ? Array.isArray(sessionsBody) ? sessionsBody : (sessionsBody.sessions ?? [])
+    : [];
+  const navigators: NavProfile[] = navsRes.ok
+    ? Array.isArray(navsBody) ? navsBody : (navsBody.navigators ?? [])
+    : [];
 
   const byRecent = (a: RealSession, b: RealSession) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -100,74 +110,80 @@ export default async function NavigatorDashboardPage() {
   const closed = mySessions.filter((s) => s.status === "closed").sort(byRecent);
 
   return (
-    <DashboardShell title="My Sessions" role="navigator" fullWidth>
-      <div className="flex gap-3 sm:gap-5 bg-white border border-gray-200 rounded-2xl px-4 sm:px-6 py-5 sm:py-6 shadow-sm">
-        <div className="flex-1 text-center min-w-0">
-          <p className="text-2xl sm:text-3xl font-normal tabular-nums text-gray-900">{active.length}</p>
-          <p className="text-xs text-green-600 font-medium mt-1.5">Active</p>
+    <div className="h-screen bg-gray-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 flex-shrink-0 sticky top-0 z-30">
+        <div className="px-4 sm:px-6 lg:px-8 py-3.5 flex items-center gap-3">
+          <Link href="/" className="font-medium text-sm text-gray-900 hover:opacity-70 transition-opacity">
+            StreetLives
+          </Link>
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-yellow text-gray-900">
+            Navigator
+          </span>
         </div>
-        <div className="w-px flex-shrink-0 self-stretch bg-gray-200 my-0.5" />
-        <div className="flex-1 text-center min-w-0">
-          <p
-            className={`text-2xl sm:text-3xl font-normal tabular-nums ${
-              unassigned.length > 0 ? "text-amber-600" : "text-gray-900"
-            }`}
-          >
-            {unassigned.length}
-          </p>
-          <p className="text-xs text-amber-600 font-medium mt-1.5">Unassigned</p>
+        <div className="px-4 sm:px-6 lg:px-8 pb-3 pt-0.5 flex items-end justify-between">
+          <h1 className="text-xl font-normal text-gray-900 tracking-tight">My Sessions</h1>
+          {/* Metrics strip */}
+          <div className="flex items-center gap-5 pb-0.5">
+            <div className="text-center">
+              <span className="text-lg font-normal tabular-nums text-green-700">{active.length}</span>
+              <span className="text-xs text-green-600 font-medium ml-1.5">Active</span>
+            </div>
+            <div className="w-px h-4 bg-gray-200" />
+            <div className="text-center">
+              <span className={`text-lg font-normal tabular-nums ${unassigned.length > 0 ? "text-amber-600" : "text-gray-900"}`}>
+                {unassigned.length}
+              </span>
+              <span className="text-xs text-amber-600 font-medium ml-1.5">Unassigned</span>
+            </div>
+            <div className="w-px h-4 bg-gray-200" />
+            <div className="text-center">
+              <span className="text-lg font-normal tabular-nums text-gray-900">{closed.length}</span>
+              <span className="text-xs text-gray-400 font-medium ml-1.5">Closed</span>
+            </div>
+          </div>
         </div>
-        <div className="w-px flex-shrink-0 self-stretch bg-gray-200 my-0.5" />
-        <div className="flex-1 text-center min-w-0">
-          <p className="text-2xl sm:text-3xl font-normal tabular-nums text-gray-900">{closed.length}</p>
-          <p className="text-xs text-gray-400 font-medium mt-1.5">Closed</p>
+      </header>
+
+      {/* Two-column body */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* Left: Open sessions (Active + Unassigned) */}
+        <div className="flex-1 min-w-0 overflow-y-auto border-r border-gray-200 px-5 py-5 space-y-5">
+          <section className="space-y-3">
+            <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Active</h2>
+            {active.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-xl px-5 py-8 text-center">
+                <p className="text-sm text-gray-400">No active sessions</p>
+              </div>
+            ) : (
+              active.map((s) => <SessionRow key={s.id} session={s} />)
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Unassigned</h2>
+            {unassigned.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-xl px-5 py-8 text-center">
+                <p className="text-sm text-gray-400">No unassigned sessions</p>
+              </div>
+            ) : (
+              unassigned.map((s) => <SessionRow key={s.id} session={s} />)
+            )}
+          </section>
+        </div>
+
+        {/* Right: Closed sessions */}
+        <div className="flex-1 min-w-0 overflow-y-auto px-5 py-5 space-y-3">
+          <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Closed</h2>
+          {closed.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl px-5 py-8 text-center">
+              <p className="text-sm text-gray-400">No closed sessions yet</p>
+            </div>
+          ) : (
+            closed.map((s) => <SessionRow key={s.id} session={s} />)
+          )}
         </div>
       </div>
-
-      <section className="space-y-4">
-        <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Active</h2>
-        {active.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-2xl px-5 py-10 text-center">
-            <p className="text-sm text-gray-400">No active sessions</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {active.map((s) => (
-              <SessionRow key={s.id} session={s} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Unassigned</h2>
-        {unassigned.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-2xl px-5 py-10 text-center">
-            <p className="text-sm text-gray-400">No unassigned sessions</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {unassigned.map((s) => (
-              <SessionRow key={s.id} session={s} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Closed</h2>
-        {closed.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-2xl px-5 py-10 text-center">
-            <p className="text-sm text-gray-400">No closed sessions yet</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {closed.map((s) => (
-              <SessionRow key={s.id} session={s} />
-            ))}
-          </div>
-        )}
-      </section>
-    </DashboardShell>
+    </div>
   );
 }

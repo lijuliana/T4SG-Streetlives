@@ -93,9 +93,10 @@ export default function SupervisorSessionDetailPage() {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Approve flow
+  // Approve / return flow
   const [coachingNotes, setCoachingNotes] = useState("");
   const [approving, setApproving] = useState(false);
+  const [returning, setReturning] = useState(false);
 
   // Chat transcript
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -193,6 +194,30 @@ export default function SupervisorSessionDetailPage() {
       }
     } finally {
       setApproving(false);
+    }
+  };
+
+  const handleReturn = async () => {
+    if (!coachingNotes.trim()) {
+      toast.error("Coaching notes required to return session");
+      return;
+    }
+    setReturning(true);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submitted_for_review: false, coaching_notes: coachingNotes }),
+      });
+      if (res.ok) {
+        toast.success("Returned to navigator");
+        router.push("/dashboard/supervisor");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Return failed");
+      }
+    } finally {
+      setReturning(false);
     }
   };
 
@@ -323,14 +348,24 @@ export default function SupervisorSessionDetailPage() {
                   className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow placeholder-gray-400 resize-none"
                 />
               </div>
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={approving}
-                className="w-full bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition disabled:opacity-50"
-              >
-                {approving ? "Approving…" : "Approve Session"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleReturn}
+                  disabled={returning || approving}
+                  className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  {returning ? "Returning…" : "Return to Navigator"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={approving || returning}
+                  className="flex-1 bg-brand-yellow text-gray-900 text-sm font-medium py-2.5 rounded-xl hover:brightness-95 transition disabled:opacity-50"
+                >
+                  {approving ? "Approving…" : "Approve"}
+                </button>
+              </div>
             </div>
           )}
 
