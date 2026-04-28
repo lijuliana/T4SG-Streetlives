@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 import { ArrowLeft, Send, Circle, UserPlus, ArrowRight, CheckCircle } from "lucide-react";
 import moment from "moment";
 import { cn } from "@/lib/utils";
+import { isProfileComplete } from "@/lib/store";
+import type { NavigatorProfile } from "@/lib/store";
 
 const OUTCOME_OPTIONS = [
   "Referrals shared",
@@ -100,6 +103,7 @@ export default function NavigatorSessionDetailPage() {
   const [navigators, setNavigators] = useState<NavProfile[]>([]);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [myProfile, setMyProfile] = useState<NavProfile | null>(null);
+  const [myFullProfile, setMyFullProfile] = useState<NavigatorProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Notes
@@ -148,10 +152,11 @@ export default function NavigatorSessionDetailPage() {
   // Load session, navigators, events, and current user's profile on mount
   useEffect(() => {
     async function load() {
-      const [sessionRes, navsRes, eventsRes] = await Promise.all([
+      const [sessionRes, navsRes, eventsRes, meRes] = await Promise.all([
         fetch(`/api/sessions/${sessionId}`),
         fetch(`/api/navigators`),
         fetch(`/api/sessions/${sessionId}/events`),
+        fetch(`/api/navigators/me`),
       ]);
       const [s, navs, evts] = await Promise.all([
         sessionRes.json(),
@@ -163,8 +168,11 @@ export default function NavigatorSessionDetailPage() {
       setEvents(Array.isArray(evts) ? evts : []);
       setNotes(s.notes ?? "");
 
-      // Identify the current user's navigator profile via the session endpoint
-      // (the navigator dashboard already guards this route via middleware)
+      if (meRes.ok) {
+        const fullProfile = (await meRes.json().catch(() => null)) as NavigatorProfile | null;
+        if (fullProfile) setMyFullProfile(fullProfile);
+      }
+
       if (s.navigator_id) {
         const mine = (Array.isArray(navs) ? navs : []).find(
           (n: NavProfile) => n.id === s.navigator_id
@@ -300,6 +308,7 @@ export default function NavigatorSessionDetailPage() {
 
   const isClosed = session.status === "closed";
   const isMySession = myProfile !== null;
+  const profileComplete = myFullProfile ? isProfileComplete(myFullProfile) : true;
   const otherNavigators = navigators.filter((n) => n.id !== session.navigator_id && n.status === "available");
   const categoryLabel = session.need_category.replace(/_/g, " ");
 
@@ -540,7 +549,20 @@ export default function NavigatorSessionDetailPage() {
             <p className="px-4 py-1 text-xs text-red-500 bg-white border-t border-gray-100">{sendError}</p>
           )}
 
-          {!isClosed && (
+          {!isClosed && !profileComplete && (
+            <div className="px-4 py-3 bg-amber-50 border-t border-amber-200 flex items-center justify-between gap-3 flex-shrink-0">
+              <p className="text-xs text-amber-700">
+                Complete your profile to send messages.
+              </p>
+              <Link
+                href="/dashboard/navigator/profile"
+                className="flex-shrink-0 text-xs font-semibold text-amber-700 underline underline-offset-2"
+              >
+                Edit profile
+              </Link>
+            </div>
+          )}
+          {!isClosed && profileComplete && (
             <div className="px-4 py-3 bg-white border-t border-gray-200 flex items-center gap-3 flex-shrink-0">
               <input
                 ref={inputRef}

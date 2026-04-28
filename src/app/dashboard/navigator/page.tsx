@@ -5,6 +5,8 @@ import Link from "next/link";
 import moment from "moment";
 import DashboardShell from "@/components/DashboardShell";
 import SessionStatusBadge from "@/components/SessionStatusBadge";
+import { isProfileComplete } from "@/lib/store";
+import type { NavigatorProfile } from "@/lib/store";
 
 interface RealSession {
   id: string;
@@ -16,14 +18,6 @@ interface RealSession {
   closed_at: string | null;
   routing_reason: object | null;
   submitted_for_review: boolean | null;
-}
-
-interface NavProfile {
-  id: string;
-  auth0_user_id: string;
-  nav_group: string;
-  status: string;
-  capacity: number;
 }
 
 function mapStatus(s: string): "queued" | "active" | "closed" {
@@ -76,31 +70,58 @@ export default async function NavigatorDashboardPage() {
   const session = await auth0.getSession();
   if (!session) redirect("/auth/login");
 
-  const [sessionsRes, navsRes] = await Promise.all([
+  const [sessionsRes, navsRes, meRes] = await Promise.all([
     lambdaFetch("/sessions"),
     lambdaFetch("/navigators"),
+    lambdaFetch("/navigators/me"),
   ]);
 
-  const sessionsBody = await sessionsRes.json().catch(() => [] as RealSession[]);
-  const navsBody = await navsRes.json().catch(() => [] as NavProfile[]);
+  // No profile yet — require setup before anything else
+  if (!meRes.ok) redirect("/dashboard/navigator/profile");
 
+  const myProfile = (await meRes.json().catch(() => null)) as NavigatorProfile | null;
+  if (!myProfile) redirect("/dashboard/navigator/profile");
+
+  const profileComplete = isProfileComplete(myProfile);
+
+  const sessionsBody = await sessionsRes.json().catch(() => [] as RealSession[]);
   const allSessions: RealSession[] = sessionsRes.ok && Array.isArray(sessionsBody) ? sessionsBody : [];
-  const navigators: NavProfile[] = navsRes.ok && Array.isArray(navsBody) ? navsBody : [];
 
   const byRecent = (a: RealSession, b: RealSession) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 
-  const myProfile = navigators.find((n) => n.auth0_user_id === session.user.sub);
-
-  const mySessions = myProfile
-    ? allSessions.filter((s) => s.navigator_id === myProfile.id)
-    : [];
+  const mySessions = allSessions.filter((s) => s.navigator_id === myProfile.id);
   const unassigned = allSessions.filter((s) => s.navigator_id === null).sort(byRecent);
   const active = mySessions.filter((s) => s.status !== "closed").sort(byRecent);
   const closed = mySessions.filter((s) => s.status === "closed").sort(byRecent);
 
+  const editProfileAction = (
+    <Link
+      href="/dashboard/navigator/profile"
+      className="text-xs font-medium text-gray-500 hover:text-gray-800 transition"
+    >
+      Edit profile
+    </Link>
+  );
+
   return (
-    <DashboardShell title="My Sessions" role="navigator" fullWidth>
+    <DashboardShell title="My Sessions" role="navigator" fullWidth action={editProfileAction}>
+      {/* Profile incomplete banner */}
+      {!profileComplete && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-amber-700">
+            Complete your profile before accepting or starting chats.
+          </p>
+          <Link
+            href="/dashboard/navigator/profile"
+            className="flex-shrink-0 text-xs font-semibold text-amber-700 underline underline-offset-2"
+          >
+            Complete profile
+          </Link>
+        </div>
+      )}
+
+      {/* Stats strip */}
       <div className="flex gap-3 sm:gap-5 bg-white border border-gray-200 rounded-2xl px-4 sm:px-6 py-5 sm:py-6 shadow-sm">
         <div className="flex-1 text-center min-w-0">
           <p className="text-2xl sm:text-3xl font-normal tabular-nums text-gray-900">{active.length}</p>

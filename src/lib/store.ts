@@ -37,6 +37,47 @@ export interface Navigator {
   available: boolean;
 }
 
+export interface NavigatorProfile {
+  id: string;
+  auth0_user_id: string;
+  name?: string | null;
+  nav_group: string;
+  status: "available" | "away" | "offline";
+  capacity: number;
+  languages: string[];
+  specialties?: ReferralCategory[] | null;
+  availability_days?: string[] | null;
+  availability_start?: string | null;
+  availability_end?: string | null;
+}
+
+export function profileToNavigator(profile: NavigatorProfile): Navigator {
+  const initials = (profile.name ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return {
+    id: profile.id,
+    name: profile.name ?? "",
+    avatarInitials: initials || "NA",
+    specialties: profile.specialties ?? [],
+    capacity: profile.capacity,
+    available: profile.status === "available",
+  };
+}
+
+export function isProfileComplete(profile: NavigatorProfile): boolean {
+  return (
+    (profile.name?.trim() ?? "").length > 0 &&
+    (profile.languages?.length ?? 0) > 0 &&
+    (profile.specialties?.length ?? 0) > 0 &&
+    (profile.nav_group?.trim() ?? "").length > 0
+  );
+}
+
 export interface Referral {
   id: string;
   sessionId: string;
@@ -141,6 +182,11 @@ interface StreetLivesStore {
     partial: Omit<Referral, "id" | "sessionId" | "sharedAt">
   ) => void;
   updateReferralStatus: (referralId: string, status: ReferralStatus) => void;
+
+  setNavigators: (navigators: Navigator[]) => void;
+
+  ownProfile: NavigatorProfile | null;
+  setOwnProfile: (profile: NavigatorProfile) => void;
 
   getSessionById: (id: string) => Session | undefined;
   getSessionsForNavigator: (navigatorId: string) => Session[];
@@ -346,6 +392,11 @@ export const useStore = create<StreetLivesStore>()(
             ),
           })),
         })),
+
+      setNavigators: (navigators) => set({ navigators }),
+
+      ownProfile: null,
+      setOwnProfile: (ownProfile) => set({ ownProfile }),
 
       getSessionById: (id) => get().sessions.find((s) => s.id === id),
       getSessionsForNavigator: (navigatorId) =>
