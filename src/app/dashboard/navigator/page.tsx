@@ -6,6 +6,10 @@ import moment from "moment";
 import { Home } from "lucide-react";
 import { OverdueFlair } from "@/components/OverdueFlair";
 import { DashboardPoller } from "@/components/DashboardPoller";
+import DashboardShell from "@/components/DashboardShell";
+import SessionStatusBadge from "@/components/SessionStatusBadge";
+import { isProfileComplete } from "@/lib/store";
+import type { NavigatorProfile } from "@/lib/store";
 
 interface RealSession {
   id: string;
@@ -27,6 +31,10 @@ interface NavProfile {
   nav_group: string;
   status: string;
   capacity: number;
+function mapStatus(s: string): "queued" | "active" | "closed" {
+  if (s === "unassigned") return "queued";
+  if (s === "closed") return "closed";
+  return "active";
 }
 
 function SessionRow({ session }: { session: RealSession }) {
@@ -88,13 +96,14 @@ export default async function NavigatorDashboardPage() {
   const session = await auth0.getSession();
   if (!session) redirect("/auth/login");
 
-  const [sessionsRes, navsRes] = await Promise.all([
+  const [sessionsRes, navsRes, meRes] = await Promise.all([
     lambdaFetch("/sessions"),
     lambdaFetch("/navigators"),
+    lambdaFetch("/navigators/me"),
   ]);
 
-  const sessionsBody = await sessionsRes.json().catch(() => [] as RealSession[]);
-  const navsBody = await navsRes.json().catch(() => [] as NavProfile[]);
+  // No profile yet — require setup before anything else
+  if (!meRes.ok) redirect("/dashboard/navigator/profile");
 
   const allSessions: RealSession[] = sessionsRes.ok
     ? Array.isArray(sessionsBody) ? sessionsBody : (sessionsBody.sessions ?? [])
@@ -106,14 +115,19 @@ export default async function NavigatorDashboardPage() {
   const byRecent = (a: RealSession, b: RealSession) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 
-  const myProfile = navigators.find((n) => n.auth0_user_id === session.user.sub);
-
-  const mySessions = myProfile
-    ? allSessions.filter((s) => s.navigator_id === myProfile.id)
-    : [];
+  const mySessions = allSessions.filter((s) => s.navigator_id === myProfile.id);
   const unassigned = allSessions.filter((s) => s.navigator_id === null).sort(byRecent);
   const active = mySessions.filter((s) => s.status !== "closed").sort(byRecent);
   const closed = mySessions.filter((s) => s.status === "closed").sort(byRecent);
+
+  const editProfileAction = (
+    <Link
+      href="/dashboard/navigator/profile"
+      className="text-xs font-medium text-gray-500 hover:text-gray-800 transition"
+    >
+      Edit profile
+    </Link>
+  );
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col">

@@ -1070,3 +1070,275 @@
   color: #6b7280;
   font-family: 'DM Mono', monospace;
 }
+
+/* ── Profile identity bar (sidebar) ── */
+.profileIdentityBar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 0 9px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: #e5e7eb;
+  font-family: 'DM Sans', sans-serif;
+  text-align: left;
+  transition: color 0.1s;
+}
+
+.profileIdentityBar[data-complete="false"] {
+  color: #fbbf24;
+}
+
+.profileIdentityName {
+  flex: 1;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileWarningBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #111;
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.profileIdentityBarEmpty {
+  display: block;
+  width: 100%;
+  padding: 7px 0 9px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: #6b7280;
+  font-family: 'DM Sans', sans-serif;
+  text-align: left;
+  text-decoration: underline;
+}
+
+/* ── Profile incomplete banner (sessions tab top) ── */
+.profileBanner {
+  padding: 9px 20px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.profileBannerText {
+  font-size: 13px;
+  color: #92400e;
+}
+
+.profileBannerButton {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #fbbf24;
+  background: #fff;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Main content wrapper (sessions tab) ── */
+.mainContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Profile edit panel ── */
+.profilePanel {
+  flex: 1;
+  overflow-y: auto;
+  background: #f9fafb;
+  font-family: 'DM Sans', sans-serif;
+  padding: 24px;
+}
+
+.profilePanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.profilePanelIdentity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profilePanelTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111;
+  margin: 0;
+}
+
+.profilePanelSubtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+  font-family: 'DM Mono', monospace;
+}
+
+.profilePanelHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.profileCompleteBadge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.04em;
+}
+
+.profileCompleteBadge[data-complete="true"] {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.profileCompleteBadge[data-complete="false"] {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.profileChangeButton {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.profileIncompleteNotice {
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #92400e;
+  margin-bottom: 20px;
+}
+
+.profileIdentityPicker {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 18px 20px;
+  max-width: 480px;
+}
+
+.profileForm {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 18px 20px;
+  max-width: 680px;
+}
+
+.profileFormGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+  margin-bottom: 18px;
+}
+
+.profileField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.profileFieldFull {
+  grid-column: 1 / -1;
+}
+
+.profileFieldLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.profileRequired {
+  color: #b91c1c;
+}
+
+.profileFieldHint {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.profileCheckboxRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #374151;
+}
+
+.profileCheckbox {
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: #111;
+}
+
+.profileFormActions {
+  padding-top: 4px;
+  border-top: 1px solid #f3f4f6;
+}
+
+/* ── Thread profile link (incomplete gate) ── */
+.threadProfileLink {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  color: #111;
+  font-weight: 600;
+  text-decoration: underline;
+}
