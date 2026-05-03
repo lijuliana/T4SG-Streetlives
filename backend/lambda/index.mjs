@@ -126,49 +126,49 @@ async function verifyAuth0Token(authHeader) {
   return payload; // { sub, email, ... }
 }
 
-// Routing: language-first, general-intake model.
-// Initial assignments are restricted to is_general_intake navigators.
-// Transfers can reach any available navigator.
-// Picks the navigator with the lowest active/capacity load ratio.
-const ROUTING_VERSION = "v2_language_first_general_intake";
+// Routing: language-first, capacity-gated, load-balanced.
+// All available navigators with valid capacity are eligible.
+// Navigators at or above capacity are excluded; if all are full, the gate is lifted.
+// Ties broken randomly to prevent one navigator from absorbing all tie cases.
+const ROUTING_VERSION = "v4_capacity_gated_load_balanced";
 
 function assignNavigator(navigators, getActiveLoad, input, mode = "initial") {
-  const generalIntakeOnly = mode === "initial";
-  let candidates = navigators.filter((n) => n.status === "available");
-  if (generalIntakeOnly) candidates = candidates.filter((n) => n.is_general_intake);
+  void mode;
 
-  if (candidates.length === 0) {
-    return {
-      assigned: false,
-      reason: generalIntakeOnly ? "No available general-intake navigators" : "No available navigators",
-    };
+  const available = navigators.filter((n) => n.status === "available" && (n.capacity ?? 0) > 0);
+  if (available.length === 0) {
+    return { assigned: false, reason: "No available navigators" };
   }
 
   const lang = input.language?.toLowerCase() ?? null;
+  let pool = available;
   if (lang) {
-    const langCandidates = candidates.filter((n) => (n.languages ?? []).includes(lang));
-    if (langCandidates.length === 0) {
-      return {
-        assigned: false,
-        reason: `No available ${generalIntakeOnly ? "general-intake " : ""}navigator speaks "${input.language}"`,
-      };
+    const withLang = available.filter((n) =>
+      (n.languages ?? []).map((l) => l.toLowerCase()).includes(lang)
+    );
+    if (withLang.length === 0) {
+      return { assigned: false, reason: `No available navigator speaks "${input.language}"` };
     }
-    candidates = langCandidates;
+    pool = withLang;
   }
+
+  // Prefer navigators with remaining capacity; fall back to all if everyone is full.
+  const withCapacity = pool.filter((n) => getActiveLoad(n.id) < n.capacity);
+  const candidates = withCapacity.length > 0 ? withCapacity : pool;
 
   const ranked = candidates
     .map((nav) => ({
       nav,
-      loadRatio: getActiveLoad(nav.id) / Math.max(nav.capacity, 1),
+      loadRatio: getActiveLoad(nav.id) / nav.capacity,
+      jitter: Math.random(),
     }))
-    .sort((a, b) => a.loadRatio - b.loadRatio || a.nav.id.localeCompare(b.nav.id));
+    .sort((a, b) => a.loadRatio - b.loadRatio || a.jitter - b.jitter);
 
   const best = ranked[0];
   return {
     assigned: true,
     navigator: best.nav,
     routingReason: {
-      generalIntakeOnly,
       languageRequested: lang,
       languageMatch: !!lang,
       loadRatio: best.loadRatio,
@@ -569,7 +569,7 @@ async function getNavigator(id) {
 
 // PATCH /navigators/:id
 async function updateNavigator(id, body) {
-  const fields = ["nav_group","expertise_tags","languages","capacity","status","is_general_intake"];
+  const fields = ["nav_group","expertise_tags","languages","capacity","status","is_general_intake","first_name","last_name"];
   const updates = [];
   const values = [];
   let i = 1;
@@ -578,6 +578,10 @@ async function updateNavigator(id, body) {
       updates.push(`${f}=$${i++}`);
       values.push(body[f]);
     }
+  }
+  if (body.availability_schedule !== undefined) {
+    updates.push(`availability_schedule=$${i++}::jsonb`);
+    values.push(JSON.stringify(body.availability_schedule));
   }
   if (updates.length === 0) return respond(400, { error: "No fields to update" });
   updates.push(`updated_at=NOW()`);
@@ -588,6 +592,42 @@ async function updateNavigator(id, body) {
   );
   if (result.rows.length === 0) return respond(404, { error: "Navigator not found" });
   return respond(200, result.rows[0]);
+}
+
+// DELETE /sessions/:id — supervisor only, closed sessions only
+async function deleteSession(sessionId, jwtPayload) {
+  const roles = jwtPayload["https://streetlives.app/roles"] ?? [];
+  if (!roles.includes("supervisor")) {
+    return respond(403, { error: "Supervisor access required" });
+  }
+
+  const result = await pool.query(
+    "SELECT id, status, matrix_room_id FROM sessions WHERE id=$1",
+    [sessionId]
+  );
+  if (result.rows.length === 0) return respond(404, { error: "Session not found" });
+  const session = result.rows[0];
+
+  if (session.status !== "closed") {
+    return respond(409, { error: "Only closed sessions can be deleted" });
+  }
+
+  // Delete Matrix room first. If this fails the DB record is left intact,
+  // keeping DB and Matrix consistent (both present or both gone).
+  try {
+    await invokeMatrix({ operation: "deleteRoom", roomId: session.matrix_room_id });
+  } catch (err) {
+    console.error(`[deleteSession] Matrix room deletion failed for room ${session.matrix_room_id}:`, err);
+    return respond(500, {
+      error: "Failed to delete Matrix room. Session record has been preserved.",
+    });
+  }
+
+  // Matrix room is gone — now permanently remove the DB record.
+  // session_events rows cascade-delete via the FK constraint.
+  await pool.query("DELETE FROM sessions WHERE id=$1", [sessionId]);
+
+  return respond(200, { ok: true, deletedSessionId: sessionId });
 }
 
 export const handler = async (event) => {
@@ -606,7 +646,7 @@ export const handler = async (event) => {
         statusCode: 200,
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
+          "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
           "Access-Control-Allow-Headers": "content-type,authorization",
           "Access-Control-Max-Age": "300",
         },
@@ -656,7 +696,7 @@ export const handler = async (event) => {
     } catch (err) {
       return respond(401, { error: "Unauthorized: " + err.message });
     }
-    const actorSub = jwtPayload.sub;
+    const actorSub = jwtPayload.sub?.endsWith("@clients") ? "user" : jwtPayload.sub;
 
     // GET /sessions  (list all)
     if (method === "GET" && segments[0] === "sessions" && segments.length === 1) {
@@ -666,6 +706,11 @@ export const handler = async (event) => {
     // PATCH /sessions/:id
     if (method === "PATCH" && segments[0] === "sessions" && segments.length === 2) {
       return await patchSession(segments[1], body, jwtPayload);
+    }
+
+    // DELETE /sessions/:id
+    if (method === "DELETE" && segments[0] === "sessions" && segments.length === 2) {
+      return await deleteSession(segments[1], jwtPayload);
     }
 
     // POST /sessions/:id/close
