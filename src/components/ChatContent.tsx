@@ -81,6 +81,7 @@ export function ChatContent({ onClose }: ChatContentProps) {
   const [error, setError] = useState<string | null>(null);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [closedByUser, setClosedByUser] = useState(false);
+  const [queuedReason, setQueuedReason] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -99,10 +100,12 @@ export function ChatContent({ onClose }: ChatContentProps) {
     const storedId = localStorage.getItem("sl_session_id");
     const storedToken = localStorage.getItem("sl_session_token");
     const storedState = localStorage.getItem("sl_session_state") as ChatState | null;
+    const storedQueuedReason = localStorage.getItem("sl_session_queued_reason");
     if (storedId && storedToken && storedState && storedState !== "closed") {
       setSessionId(storedId);
       setSessionToken(storedToken);
       setChatState(storedState);
+      if (storedQueuedReason) setQueuedReason(storedQueuedReason);
     }
   }, []);
 
@@ -168,6 +171,7 @@ export function ChatContent({ onClose }: ChatContentProps) {
           statusPollRef.current = null;
           setChatState("live");
           localStorage.setItem("sl_session_state", "live");
+          localStorage.removeItem("sl_session_queued_reason");
           setMessages((prev) => [
             ...prev,
             { id: crypto.randomUUID(), role: "system", content: "A navigator has joined the chat.", timestamp: new Date().toISOString() },
@@ -211,9 +215,12 @@ export function ChatContent({ onClose }: ChatContentProps) {
         startMessagePolling(id, token);
         setTimeout(() => inputRef.current?.focus(), 100);
       } else {
-        // unassigned — waiting room
+        // unassigned — put in queue
+        const reason = session.routingFailReason ?? "No available navigators";
         setChatState("waiting");
+        setQueuedReason(reason);
         localStorage.setItem("sl_session_state", "waiting");
+        localStorage.setItem("sl_session_queued_reason", reason);
         startStatusPolling(id, token);
       }
     } catch (err) {
@@ -250,6 +257,7 @@ export function ChatContent({ onClose }: ChatContentProps) {
     localStorage.removeItem("sl_session_state");
     localStorage.removeItem("sl_session_need_category");
     localStorage.removeItem("sl_session_created_at");
+    localStorage.removeItem("sl_session_queued_reason");
   };
 
   const handleLeave = () => {
@@ -350,8 +358,14 @@ export function ChatContent({ onClose }: ChatContentProps) {
         )}
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
           <div className="w-12 h-12 rounded-full border-4 border-brand-yellow border-t-transparent animate-spin" />
-          <p className="text-gray-700 font-medium">Looking for an available navigator…</p>
-          <p className="text-sm text-gray-400">This usually takes less than a minute. Please stay on this page.</p>
+          <p className="text-gray-700 font-medium">You&rsquo;re in the queue</p>
+          <p className="text-sm text-gray-400">
+            {queuedReason?.includes("speaks")
+              ? "No navigators are available in your language right now."
+              : "All navigators are currently unavailable."
+            }{" "}
+            We&rsquo;ll connect you as soon as one becomes available. Please stay on this page.
+          </p>
         </div>
       </div>
     );

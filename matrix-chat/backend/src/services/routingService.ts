@@ -1,8 +1,8 @@
 /**
- * Routing service — tiered specialization + language + capacity.
+ * Routing service — tiered specialization + language + schedule + capacity.
  *
  * Algorithm (applies to both initial assignment and re-routing):
- *   1. Filter to status="available" and capacity > 0.
+ *   1. Filter to status="available", capacity > 0, and within availabilitySchedule (if set).
  *   2. Exclude navigators at or above capacity (active load >= capacity).
  *   3. If none remain → queue (assigned: false).
  *   4. PRIMARY: find specialists — category match (unless "other") + language match (if specified).
@@ -13,6 +13,10 @@
  *
  * Load balancing (all tiers): sort by activeLoad / capacity (ascending); id as stable tie-breaker.
  * Navigators with a lower active:capacity ratio always receive new users over busier ones.
+ *
+ * Schedule check: if a navigator has an availabilitySchedule, they are only eligible during the
+ * configured time window for the current day. Missing a day means unavailable that day. Navigators
+ * with no schedule set are considered reachable whenever their status is "available".
  */
 
 import type {
@@ -23,7 +27,45 @@ import type {
   RoutingReason,
 } from "../types.js";
 
-export const ROUTING_VERSION = "v4_tiered_category_lang_capacity";
+export const ROUTING_VERSION = "v5_tiered_category_lang_schedule_capacity";
+
+const DAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/**
+ * Returns true when `now` falls within the navigator's availability window for the current day.
+ * If no schedule is configured (undefined or empty), the navigator is always schedule-eligible.
+ */
+export function isWithinSchedule(nav: NavigatorProfile, now: Date): boolean {
+  const schedule = nav.availabilitySchedule;
+  if (!schedule || Object.keys(schedule).length === 0) return true;
+
+  const dayKey = DAY_ABBREVIATIONS[now.getDay()];
+  const hours = schedule[dayKey];
+  if (!hours) return false;
+
+  const toMinutes = (hhmm: string): number => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return (h ?? 0) * 60 + (m ?? 0);
+  };
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  return currentMinutes >= toMinutes(hours.start) && currentMinutes < toMinutes(hours.end);
+}
+
+function routingLog(entry: {
+  category: string;
+  language: string | null;
+  roster: number;
+  excluded: { notAvailable: number; outsideSchedule: number; overCapacity: number };
+  pool: number;
+  tier: "primary" | "fallback" | null;
+  candidates: Array<{ id: string; ratio: number }>;
+  selected: string | null;
+  outcome: "assigned" | "unassigned";
+  failReason: string | null;
+}): void {
+  console.log(`[routing] ${JSON.stringify(entry)}`);
+}
 
 function buildReason(
   languageRequested: string | null,
@@ -57,29 +99,43 @@ function rankByLoad(
  * @param navigators    Full roster (caller passes navigatorStore.list())
  * @param getActiveLoad Returns current active-session count for a navigator id
  * @param mode          Retained for API compatibility; does not restrict routing behavior
+ * @param now           Timestamp used for schedule evaluation (defaults to current time)
  */
 export function assignNavigator(
   input: RoutingInput,
   navigators: NavigatorProfile[],
   getActiveLoad: (navigatorId: string) => number,
   mode: RoutingMode = "initial",
+  now: Date = new Date(),
 ): RoutingOutcome {
   void mode;
 
-  // Step 1: available navigators with a non-zero capacity setting
-  const available = navigators.filter((n) => n.status === "available" && n.capacity > 0);
+  // Step 1: filter by status + capacity, then by schedule
+  const statusEligible = navigators.filter((n) => n.status === "available" && n.capacity > 0);
+  const available = statusEligible.filter((n) => isWithinSchedule(n, now));
 
   // Step 2: exclude navigators at or above their capacity ceiling
   const withCapacity = available.filter((n) => getActiveLoad(n.id) < n.capacity);
 
+  const excluded = {
+    notAvailable: navigators.length - statusEligible.length,
+    outsideSchedule: statusEligible.length - available.length,
+    overCapacity: available.length - withCapacity.length,
+  };
+  const logBase = {
+    category: input.needCategory,
+    language: input.language ?? null,
+    roster: navigators.length,
+    excluded,
+    pool: withCapacity.length,
+  };
+
   if (withCapacity.length === 0) {
-    return {
-      assigned: false,
-      reason: available.length === 0
-        ? "No available navigators"
-        : "All navigators are at full capacity",
-      routingVersion: ROUTING_VERSION,
-    };
+    const reason = available.length === 0
+      ? "No available navigators"
+      : "All navigators are at full capacity";
+    routingLog({ ...logBase, tier: null, candidates: [], selected: null, outcome: "unassigned", failReason: reason });
+    return { assigned: false, reason, routingVersion: ROUTING_VERSION };
   }
 
   const lang = input.language?.toLowerCase() ?? null;
@@ -96,7 +152,9 @@ export function assignNavigator(
       );
     }
     if (specialists.length > 0) {
-      const best = rankByLoad(specialists, getActiveLoad)[0];
+      const ranked = rankByLoad(specialists, getActiveLoad);
+      const best = ranked[0];
+      routingLog({ ...logBase, tier: "primary", candidates: ranked.map((r) => ({ id: r.nav.id, ratio: r.loadRatio })), selected: best.nav.id, outcome: "assigned", failReason: null });
       return {
         assigned: true,
         navigator: best.nav,
@@ -114,15 +172,15 @@ export function assignNavigator(
       n.languages.map((l) => l.toLowerCase()).includes(lang),
     );
     if (fallback.length === 0) {
-      return {
-        assigned: false,
-        reason: `No available navigator speaks "${input.language}"`,
-        routingVersion: ROUTING_VERSION,
-      };
+      const reason = `No available navigator speaks "${input.language}"`;
+      routingLog({ ...logBase, tier: "fallback", candidates: [], selected: null, outcome: "unassigned", failReason: reason });
+      return { assigned: false, reason, routingVersion: ROUTING_VERSION };
     }
   }
 
-  const best = rankByLoad(fallback, getActiveLoad)[0];
+  const ranked = rankByLoad(fallback, getActiveLoad);
+  const best = ranked[0];
+  routingLog({ ...logBase, tier: "fallback", candidates: ranked.map((r) => ({ id: r.nav.id, ratio: r.loadRatio })), selected: best.nav.id, outcome: "assigned", failReason: null });
   return {
     assigned: true,
     navigator: best.nav,

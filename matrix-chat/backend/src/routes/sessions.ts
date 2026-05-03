@@ -33,6 +33,7 @@ import { messageStore } from "../services/messageStore.js";
 import { noteStore } from "../services/noteStore.js";
 import { referralStore } from "../services/referralStore.js";
 import { assignNavigator, ROUTING_VERSION } from "../services/routingService.js";
+import { processQueue, makeDefaultDeps } from "../services/queueProcessor.js";
 import type {
   CreateNoteRequest,
   CreateReferralRequest,
@@ -103,6 +104,7 @@ router.post("/", async (req: Request, res: Response) => {
       matrixRoomId: roomId,
       status: outcome.assigned ? "active" : "unassigned",
       needCategory,
+      language: routingInput.language ?? null,
       assignedNavigatorId: outcome.assigned ? outcome.navigator.id : null,
       routingVersion: outcome.routingVersion,
       routingReason: outcome.assigned ? outcome.routingReason : null,
@@ -233,6 +235,11 @@ router.post("/:sessionId/close", (req: Request, res: Response) => {
     metadata: { previousStatus: session.status },
   });
 
+  // A slot opened up — try to assign any queued sessions.
+  processQueue(makeDefaultDeps(BASE_URL)).catch((err: unknown) => {
+    console.error("[sessions] Queue processing after close error (non-fatal):", err);
+  });
+
   res.json({ ok: true, closedAt });
 });
 
@@ -255,6 +262,8 @@ router.post("/:sessionId/transfer", async (req: Request, res: Response) => {
   const oldNavigatorId = session.assignedNavigatorId;
   let newNavigatorId: string;
   let newNavigatorUserId: string;
+  let transferRoutingVersion: string = ROUTING_VERSION;
+  let transferRoutingReason: import("../types.js").RoutingReason | null = null;
 
   if (body.targetNavigatorId) {
     const target = navigatorStore.findById(body.targetNavigatorId);
@@ -300,6 +309,8 @@ router.post("/:sessionId/transfer", async (req: Request, res: Response) => {
 
     newNavigatorId = outcome.navigator.id;
     newNavigatorUserId = outcome.navigator.userId;
+    transferRoutingVersion = outcome.routingVersion;
+    transferRoutingReason = outcome.routingReason;
   }
 
   if (oldNavigatorId && oldNavigatorId !== newNavigatorId) {
@@ -315,7 +326,7 @@ router.post("/:sessionId/transfer", async (req: Request, res: Response) => {
     console.error("[sessions] Matrix invite error (non-fatal):", err);
   });
 
-  sessionStore.setNavigatorAssignment(session.sessionId, newNavigatorId, ROUTING_VERSION, null);
+  sessionStore.setNavigatorAssignment(session.sessionId, newNavigatorId, transferRoutingVersion, transferRoutingReason);
   sessionStore.updateStatus(session.sessionId, "active");
 
   sessionEventStore.append({

@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { assignNavigator, ROUTING_VERSION } from "../services/routingService.js";
+import { assignNavigator, isWithinSchedule, ROUTING_VERSION } from "../services/routingService.js";
 import type { NavigatorProfile } from "../types.js";
 
 const makeNav = (overrides: Partial<NavigatorProfile>): NavigatorProfile => ({
@@ -343,5 +343,129 @@ describe("routing version", () => {
   it("includes routing version in unassigned outcomes", () => {
     const outcome = assignNavigator({ needCategory: "other" }, [], noLoad);
     expect(outcome.routingVersion).toBe(ROUTING_VERSION);
+  });
+});
+
+// ── Availability schedule ─────────────────────────────────────────────────────
+
+// January 1 2024 was a Monday. Use fixed timestamps for deterministic day/time checks.
+const mon10am  = new Date(2024, 0, 1, 10,  0); // Mon 10:00
+const mon8am   = new Date(2024, 0, 1,  8,  0); // Mon 08:00 (before window)
+const mon6pm   = new Date(2024, 0, 1, 18,  0); // Mon 18:00 (after window)
+const mon9am   = new Date(2024, 0, 1,  9,  0); // Mon 09:00 (exactly at start)
+const mon5pm   = new Date(2024, 0, 1, 17,  0); // Mon 17:00 (exactly at end — exclusive)
+const tue10am  = new Date(2024, 0, 2, 10,  0); // Tue 10:00 (different day)
+const sun10am  = new Date(2024, 0, 7, 10,  0); // Sun 10:00 (day not in schedule)
+
+describe("isWithinSchedule", () => {
+  const navWithSchedule = makeNav({
+    availabilitySchedule: {
+      Mon: { start: "09:00", end: "17:00" },
+      Tue: { start: "09:00", end: "17:00" },
+    },
+  });
+
+  it("returns true when no schedule is set (undefined)", () => {
+    const nav = makeNav({ availabilitySchedule: undefined });
+    expect(isWithinSchedule(nav, mon10am)).toBe(true);
+  });
+
+  it("returns true when schedule is an empty object", () => {
+    const nav = makeNav({ availabilitySchedule: {} });
+    expect(isWithinSchedule(nav, mon10am)).toBe(true);
+  });
+
+  it("returns true when now is within the day's window", () => {
+    expect(isWithinSchedule(navWithSchedule, mon10am)).toBe(true);
+  });
+
+  it("returns true exactly at the start boundary (inclusive)", () => {
+    expect(isWithinSchedule(navWithSchedule, mon9am)).toBe(true);
+  });
+
+  it("returns false exactly at the end boundary (exclusive)", () => {
+    expect(isWithinSchedule(navWithSchedule, mon5pm)).toBe(false);
+  });
+
+  it("returns false when now is before the day's window", () => {
+    expect(isWithinSchedule(navWithSchedule, mon8am)).toBe(false);
+  });
+
+  it("returns false when now is after the day's window", () => {
+    expect(isWithinSchedule(navWithSchedule, mon6pm)).toBe(false);
+  });
+
+  it("returns false when the current day is not in the schedule", () => {
+    expect(isWithinSchedule(navWithSchedule, sun10am)).toBe(false);
+  });
+
+  it("returns true for a different day that is in the schedule", () => {
+    expect(isWithinSchedule(navWithSchedule, tue10am)).toBe(true);
+  });
+});
+
+describe("availability schedule — assignNavigator integration", () => {
+  it("queues user when navigator is available status but outside schedule hours", () => {
+    const nav = makeNav({
+      id: "n1",
+      status: "available",
+      availabilitySchedule: { Mon: { start: "09:00", end: "17:00" } },
+    });
+    const outcome = assignNavigator({ needCategory: "other" }, [nav], noLoad, "initial", mon8am);
+    expect(outcome.assigned).toBe(false);
+  });
+
+  it("assigns navigator when within schedule hours", () => {
+    const nav = makeNav({
+      id: "n1",
+      status: "available",
+      availabilitySchedule: { Mon: { start: "09:00", end: "17:00" } },
+    });
+    const outcome = assignNavigator({ needCategory: "other" }, [nav], noLoad, "initial", mon10am);
+    expect(outcome.assigned).toBe(true);
+    if (outcome.assigned) expect(outcome.navigator.id).toBe("n1");
+  });
+
+  it("queues user when available navigator's scheduled day does not match", () => {
+    const nav = makeNav({
+      id: "n1",
+      status: "available",
+      availabilitySchedule: { Mon: { start: "09:00", end: "17:00" } },
+    });
+    const outcome = assignNavigator({ needCategory: "other" }, [nav], noLoad, "initial", sun10am);
+    expect(outcome.assigned).toBe(false);
+  });
+
+  it("routes to unscheduled navigator when scheduled one is outside window", () => {
+    const scheduled = makeNav({
+      id: "n1",
+      status: "available",
+      availabilitySchedule: { Mon: { start: "09:00", end: "17:00" } },
+    });
+    const unscheduled = makeNav({ id: "n2", status: "available" }); // no schedule = always eligible
+    const outcome = assignNavigator({ needCategory: "other" }, [scheduled, unscheduled], noLoad, "initial", mon8am);
+    expect(outcome.assigned).toBe(true);
+    if (outcome.assigned) expect(outcome.navigator.id).toBe("n2");
+  });
+
+  it("load balances among in-schedule navigators, ignoring out-of-schedule ones", () => {
+    const outOfSchedule = makeNav({
+      id: "n1",
+      status: "available",
+      capacity: 10,
+      availabilitySchedule: { Tue: { start: "09:00", end: "17:00" } }, // Mon not included
+    });
+    const highLoad = makeNav({ id: "n2", status: "available", capacity: 4 });
+    const lowLoad  = makeNav({ id: "n3", status: "available", capacity: 4 });
+    // n2 has load ratio 0.5, n3 is idle → n3 wins; n1 is excluded by schedule
+    const outcome = assignNavigator(
+      { needCategory: "other" },
+      [outOfSchedule, highLoad, lowLoad],
+      (id) => (id === "n2" ? 2 : 0),
+      "initial",
+      mon10am,
+    );
+    expect(outcome.assigned).toBe(true);
+    if (outcome.assigned) expect(outcome.navigator.id).toBe("n3");
   });
 });

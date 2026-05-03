@@ -79,6 +79,7 @@ export interface Session {
   createdAt: string;
   closedAt: string | null;
   needCategory: NeedCategory | null;
+  language: string | null;          // ISO 639-1 code from the user's original request
   assignedNavigatorId: string | null;
   routingVersion: string | null;
   routingReason: RoutingReason | null;

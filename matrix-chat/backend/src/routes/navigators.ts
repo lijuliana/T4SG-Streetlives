@@ -1,6 +1,9 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { navigatorStore } from "../services/navigatorStore.js";
+import { processQueue, makeDefaultDeps } from "../services/queueProcessor.js";
+
+const BASE_URL = process.env.MATRIX_BASE_URL!;
 import type {
   AvailabilitySchedule,
   CreateNavigatorProfileRequest,
@@ -161,6 +164,11 @@ router.patch("/:id", (req: Request, res: Response) => {
     res.status(404).json({ error: "Navigator not found" });
     return;
   }
+
+  // Profile change may have opened slots — try to assign any queued sessions.
+  processQueue(makeDefaultDeps(BASE_URL)).catch((err: unknown) => {
+    console.error("[navigators] Queue processing after profile update error (non-fatal):", err);
+  });
 
   res.json(updated);
 });
