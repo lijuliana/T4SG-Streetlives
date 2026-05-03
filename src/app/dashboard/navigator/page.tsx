@@ -30,6 +30,11 @@ interface NavProfile {
   status: string;
   capacity: number;
 }
+function mapStatus(s: string): "queued" | "active" | "closed" {
+  if (s === "unassigned") return "queued";
+  if (s === "closed") return "closed";
+  return "active";
+}
 
 
 function SessionRow({ session }: { session: RealSession }) {
@@ -105,9 +110,27 @@ export default async function NavigatorDashboardPage() {
 
   const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => null) : null;
 
+  const [sessionsBody, navsBody, meBody] = await Promise.all([
+    sessionsRes.json().catch(() => []),
+    navsRes.json().catch(() => []),
+    meRes.json().catch(() => null),
+  ]);
+
   const allSessions: RealSession[] = sessionsRes.ok
     ? Array.isArray(sessionsBody) ? sessionsBody : (sessionsBody.sessions ?? [])
     : [];
+  const navigators: NavProfile[] = navsRes.ok
+    ? Array.isArray(navsBody) ? navsBody : (navsBody.navigators ?? [])
+    : [];
+  const myProfile = (
+    meBody &&
+    typeof meBody === "object" &&
+    (meBody.profile ?? meBody.navigator ?? meBody)
+  ) as NavigatorProfile | null;
+
+  if (!myProfile || !isProfileComplete(myProfile)) {
+    redirect("/dashboard/navigator/profile");
+  }
 
   const byRecent = (a: RealSession, b: RealSession) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
