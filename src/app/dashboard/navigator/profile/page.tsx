@@ -3,6 +3,7 @@ import { lambdaFetch } from "@/lib/lambda";
 import { redirect } from "next/navigation";
 import DashboardShell from "@/components/DashboardShell";
 import NavigatorProfileForm from "@/components/NavigatorProfileForm";
+import { normalizeNavigatorFromLambda } from "@/lib/navigatorProfile";
 import type { NavigatorProfile } from "@/lib/store";
 
 // Fetches the logged-in navigator's profile from the real backend.
@@ -15,8 +16,37 @@ export default async function NavigatorProfilePage() {
   let profile: NavigatorProfile | null = null;
   try {
     const res = await lambdaFetch("/navigators/me");
+    console.log("[nav-profile] /navigators/me status", res.status, "sub", session.user?.sub);
     if (res.ok) {
-      profile = (await res.json()) as NavigatorProfile;
+      profile = normalizeNavigatorFromLambda(
+        await res.json(),
+        session.user?.name ?? null,
+        session.user?.sub ?? null
+      );
+      console.log("[nav-profile] normalized profile?", !!profile);
+    } else if (res.status === 401) {
+      redirect("/auth/login?returnTo=/dashboard/navigator/profile");
+    } else {
+      // Compatibility fallback for backends that don't yet expose /navigators/me
+      // and for transient backend failures on /navigators/me.
+      const allRes = await lambdaFetch("/navigators");
+      if (allRes.ok) {
+        const allBody = (await allRes.json().catch(() => [])) as unknown;
+        const rows = Array.isArray(allBody)
+          ? allBody
+          : ((allBody as { navigators?: unknown[] })?.navigators ?? []);
+        const mine = rows.find((row) => {
+          if (!row || typeof row !== "object") return false;
+          const r = row as Record<string, unknown>;
+          return r.auth0_user_id === session.user.sub || r.userId === session.user.sub;
+        });
+        profile = normalizeNavigatorFromLambda(
+          mine,
+          session.user?.name ?? null,
+          session.user?.sub ?? null
+        );
+        console.log("[nav-profile] fallback profile?", !!profile);
+      }
     }
   } catch {
     // No profile exists yet — form will POST to create one.
