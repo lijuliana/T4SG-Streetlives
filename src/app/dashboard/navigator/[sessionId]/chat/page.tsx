@@ -4,8 +4,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Send, X } from "lucide-react";
 import moment from "moment";
+import { cn } from "@/lib/utils";
 
-const POLL_MS = 3000;
+const POLL_MS = 7000;
 
 interface RealSession {
   id: string;
@@ -91,7 +92,9 @@ export default function NavigatorChatPage() {
         const pruned = prev.filter(
           (m) => !m.id.startsWith("optimistic-") || !confirmedContents.has(`${m.role}:${m.content}`)
         );
-        return [...pruned, ...newMsgs];
+        return [...pruned, ...newMsgs].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
       });
     }
   }, []);
@@ -104,12 +107,14 @@ export default function NavigatorChatPage() {
         .then((data) => appendMessages(data.messages ?? []))
         .catch(console.error);
     };
-    poll(); // immediate first fetch
-    pollRef.current = setInterval(poll, POLL_MS);
+    poll();
+    if (session?.status !== "closed") {
+      pollRef.current = setInterval(poll, POLL_MS);
+    }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [sessionId, appendMessages]);
+  }, [sessionId, appendMessages, session?.status]);
 
   const isReadOnly = session?.status === "closed";
 
@@ -124,6 +129,7 @@ export default function NavigatorChatPage() {
       role: "navigator",
       content: text,
       timestamp: new Date().toISOString(),
+      pending: true,
     }]);
     try {
       const res = await fetch(`/api/sessions/${sessionId}/navigator-messages`, {
@@ -143,8 +149,6 @@ export default function NavigatorChatPage() {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
     }
 
-    // Remove the optimistic copy — the confirmed message arrives on the next poll.
-    setMessages((prev) => prev.filter((m) => m.id !== pendingId));
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 

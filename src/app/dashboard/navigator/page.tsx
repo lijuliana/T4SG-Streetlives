@@ -22,8 +22,19 @@ const CATEGORY_ICONS: Record<string, string> = {
   education:      "/new-icons/checklist.svg",
   other:          "/new-icons/chat.svg",
 };
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", zh: "Chinese",
+  ar: "Arabic", pt: "Portuguese", ru: "Russian", ko: "Korean",
+  vi: "Vietnamese", ht: "Haitian Creole", pl: "Polish", it: "Italian",
+};
+
+function languageLabel(code: string): string {
+  return LANGUAGE_NAMES[code.toLowerCase()] ?? code.toUpperCase();
+}
+
 import { OverdueFlair } from "@/components/OverdueFlair";
 import { DashboardPoller } from "@/components/DashboardPoller";
+import ShowMoreList from "@/components/ShowMoreList";
 
 interface RealSession {
   id: string;
@@ -49,11 +60,6 @@ interface NavProfile {
   capacity: number;
 }
 
-function mapStatus(s: string): "queued" | "active" | "closed" {
-  if (s === "unassigned") return "queued";
-  if (s === "closed") return "closed";
-  return "active";
-}
 
 
 function SessionRow({ session }: { session: RealSession }) {
@@ -81,7 +87,7 @@ function SessionRow({ session }: { session: RealSession }) {
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {session.language && (
             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-              {session.language.toUpperCase()}
+              {languageLabel(session.language)}
             </span>
           )}
           {session.routing_reason && (
@@ -133,34 +139,9 @@ export default async function NavigatorDashboardPage() {
 
   const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => null) : null;
 
-  const [sessionsBody, navsBody, meBody] = await Promise.all([
-    sessionsRes.json().catch(() => []),
-    navsRes.json().catch(() => []),
-    meRes.json().catch(() => null),
-  ]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [sessionsBody, navsBody, myProfile]: [any, any, NavProfile] = await Promise.all([
-    sessionsRes.ok ? sessionsRes.json() : {},
-    navsRes.ok ? navsRes.json() : {},
-    meRes.json(),
-  ]);
-
-  const allSessions: RealSession[] = sessionsRes.ok
-    ? Array.isArray(sessionsBody) ? sessionsBody : (sessionsBody.sessions ?? [])
-    : [];
-  const navigators: NavProfile[] = navsRes.ok
-    ? Array.isArray(navsBody) ? navsBody : (navsBody.navigators ?? [])
-    : [];
-  const myProfile = (
-    meBody &&
-    typeof meBody === "object" &&
-    (meBody.profile ?? meBody.navigator ?? meBody)
-  ) as NavigatorProfile | null;
-
-  if (!myProfile || !isProfileComplete(myProfile)) {
-    redirect("/dashboard/navigator/profile");
-  }
+  const allSessions: RealSession[] = Array.isArray(sessionsBody)
+    ? sessionsBody
+    : (sessionsBody?.sessions ?? []);
 
   const byRecent = (a: RealSession, b: RealSession) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -268,7 +249,9 @@ export default async function NavigatorDashboardPage() {
                   <p className="text-sm text-gray-400">No closed sessions yet</p>
                 </div>
               ) : (
-                closed.map((s) => <SessionRow key={s.id} session={s} />)
+                <ShowMoreList>
+                  {closed.map((s) => <SessionRow key={s.id} session={s} />)}
+                </ShowMoreList>
               )}
             </div>
           </details>

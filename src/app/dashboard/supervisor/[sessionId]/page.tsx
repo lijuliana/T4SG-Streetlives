@@ -9,7 +9,7 @@ import { ArrowLeft, Circle, UserPlus, ArrowRight, CheckCircle, Home } from "luci
 import moment from "moment";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 3000;
+const POLL_MS = 7000;
 
 const CATEGORY_ICONS: Record<string, string> = {
   housing:        "/new-icons/house.svg",
@@ -47,8 +47,18 @@ interface Session {
 interface NavProfile {
   id: string;
   auth0_user_id: string;
+  first_name: string | null;
+  last_name: string | null;
   nav_group: string;
   status: string;
+}
+
+function navFullName(nav: NavProfile): string {
+  const name = [nav.first_name, nav.last_name].filter(Boolean).join(" ");
+  if (name) return name;
+  const group = nav.nav_group.replace(/_/g, " ");
+  const shortId = nav.id.slice(-4);
+  return `${group} (·${shortId})`;
 }
 
 interface SessionEvent {
@@ -75,7 +85,7 @@ function resolveActorName(actorId: string, navList: NavProfile[]): string {
   if (actorId === "system") return "System";
   if (actorId === "user" || actorId.endsWith("@clients")) return "User";
   const nav = navList.find((n) => n.auth0_user_id === actorId || n.id === actorId);
-  return nav ? (nav.nav_group || actorId) : "Supervisor";
+  return nav ? navFullName(nav) : "Supervisor";
 }
 
 const EVENT_LABELS: Record<SessionEvent["event_type"], string> = {
@@ -195,7 +205,11 @@ export default function SupervisorSessionDetailPage() {
         timestamp: new Date(m.timestamp).toISOString(),
       });
     }
-    if (newMsgs.length > 0) setMessages((prev) => [...prev, ...newMsgs]);
+    if (newMsgs.length > 0) setMessages((prev) =>
+      [...prev, ...newMsgs].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      )
+    );
   }, []);
 
   useEffect(() => {
@@ -335,7 +349,7 @@ export default function SupervisorSessionDetailPage() {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 capitalize">{categoryLabel}</p>
           <p className="text-xs text-gray-400">
-            {isClosed ? "Closed" : session.approved ? "Approved" : isNeedsReview ? "Needs Review" : "Active"} · {nav?.nav_group ?? "Unassigned"}
+            {isClosed ? "Closed" : session.approved ? "Approved" : isNeedsReview ? "Needs Review" : "Active"} · {nav ? navFullName(nav) : "Unassigned"}
           </p>
         </div>
         <span className={cn(
@@ -361,7 +375,7 @@ export default function SupervisorSessionDetailPage() {
           <div className="space-y-1 text-sm text-gray-600">
             <p><span className="text-gray-400">Category:</span> <span className="capitalize">{categoryLabel}</span></p>
             {session.language && <p><span className="text-gray-400">Language:</span> {session.language.toUpperCase()}</p>}
-            <p><span className="text-gray-400">Navigator:</span> {nav?.nav_group ?? "Unassigned"}</p>
+            <p><span className="text-gray-400">Navigator:</span> {nav ? navFullName(nav) : "Unassigned"}</p>
             <p><span className="text-gray-400">Started:</span> {moment(session.created_at).format("MMM D, YYYY [at] h:mm A")}</p>
             {session.closed_at && (
               <p><span className="text-gray-400">Closed:</span> {moment(session.closed_at).format("MMM D, YYYY [at] h:mm A")}</p>
@@ -430,7 +444,7 @@ export default function SupervisorSessionDetailPage() {
                 {navigators
                   .filter((n) => n.id !== session.navigator_id && n.status === "available")
                   .map((n) => (
-                    <option key={n.id} value={n.id}>{n.nav_group}</option>
+                    <option key={n.id} value={n.id}>{navFullName(n)}</option>
                   ))}
               </select>
               <button
@@ -470,7 +484,7 @@ export default function SupervisorSessionDetailPage() {
                   {navigators
                     .filter((n) => n.id !== session.navigator_id && n.status === "available")
                     .map((n) => (
-                      <option key={n.id} value={n.id}>{n.nav_group}</option>
+                      <option key={n.id} value={n.id}>{navFullName(n)}</option>
                     ))}
                 </select>
               </div>

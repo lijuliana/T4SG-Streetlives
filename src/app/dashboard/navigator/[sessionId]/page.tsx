@@ -33,7 +33,7 @@ const OUTCOME_OPTIONS = [
   "Information Only",
 ];
 
-const POLL_MS = 3000;
+const POLL_MS = 7000;
 
 interface Session {
   id: string;
@@ -239,7 +239,9 @@ setSession(s);
         const pruned = prev.filter(
           (m) => !m.id.startsWith("optimistic-") || !confirmedContents.has(`${m.role}:${m.content}`)
         );
-        return [...pruned, ...newMsgs];
+        return [...pruned, ...newMsgs].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
       });
     }
   }, []);
@@ -252,9 +254,11 @@ setSession(s);
         .catch(console.error);
     };
     poll();
-    pollRef.current = setInterval(poll, POLL_MS);
+    if (session?.status !== "closed") {
+      pollRef.current = setInterval(poll, POLL_MS);
+    }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [sessionId, appendMessages]);
+  }, [sessionId, appendMessages, session?.status]);
 
   const saveNotes = async () => {
     if (!session || notes === (session.notes ?? "")) return;
