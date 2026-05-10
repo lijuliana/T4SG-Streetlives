@@ -42,23 +42,6 @@ interface RealSession {
   coaching_notes: string | null;
 }
 
-interface NavProfile {
-  id: string;
-  auth0_user_id: string;
-  first_name: string;
-  last_name: string;
-  nav_group: string;
-  status: string;
-  capacity: number;
-}
-
-function mapStatus(s: string): "queued" | "active" | "closed" {
-  if (s === "unassigned") return "queued";
-  if (s === "closed") return "closed";
-  return "active";
-}
-
-
 function SessionRow({ session }: { session: RealSession }) {
   const isUnassigned = session.navigator_id === null;
   const isClosed = session.status === "closed";
@@ -122,48 +105,38 @@ export default async function NavigatorDashboardPage() {
   const session = await auth0.getSession();
   if (!session) redirect("/auth/login");
 
-const [sessionsRes, meRes] = await Promise.all([
-  lambdaFetch("/sessions"),
-  lambdaFetch("/navigators/me"),
-]);
+  const [sessionsRes, meRes] = await Promise.all([
+    lambdaFetch("/sessions"),
+    lambdaFetch("/navigators/me"),
+  ]);
 
-if (meRes.status === 401) {
-  redirect("/auth/login?returnTo=/dashboard/navigator");
-}
-
-let meBody: unknown = null;
-if (meRes.ok) {
-  meBody = await meRes.json().catch(() => null);
-} else {
-  // Fallback when /navigators/me is unavailable or fails
-  const allRes = await lambdaFetch("/navigators");
-  const allBody = await allRes.json().catch(() => []);
-  if (allRes.ok) {
-    const rows = Array.isArray(allBody)
-      ? allBody
-      : ((allBody as { navigators?: unknown[] }).navigators ?? []);
-    meBody =
-      rows.find((row: unknown) => {
-        if (!row || typeof row !== "object") return false;
-        const record = row as Record<string, unknown>;
-        return (
-          record.auth0_user_id === session.user?.sub ||
-          record.userId === session.user?.sub
-        );
-      }) ?? null;
+  if (meRes.status === 401) {
+    redirect("/auth/login?returnTo=/dashboard/navigator");
   }
-}
 
-const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => []) : [];
+  let meBody: unknown = null;
+  if (meRes.ok) {
+    meBody = await meRes.json().catch(() => null);
+  } else {
+    const allRes = await lambdaFetch("/navigators");
+    const allBody = await allRes.json().catch(() => []);
+    if (allRes.ok) {
+      const rows = Array.isArray(allBody)
+        ? allBody
+        : ((allBody as { navigators?: unknown[] }).navigators ?? []);
+      meBody =
+        rows.find((row: unknown) => {
+          if (!row || typeof row !== "object") return false;
+          const record = row as Record<string, unknown>;
+          return (
+            record.auth0_user_id === session.user?.sub ||
+            record.userId === session.user?.sub
+          );
+        }) ?? null;
+    }
+  }
 
   const sessionsBody = await sessionsRes.json().catch(() => []);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [sessionsBody, navsBody, myProfile]: [any, any, NavProfile] = await Promise.all([
-    sessionsRes.ok ? sessionsRes.json() : {},
-    navsRes.ok ? navsRes.json() : {},
-    meRes.json(),
-  ]);
 
   const allSessions: RealSession[] = sessionsRes.ok
     ? Array.isArray(sessionsBody) ? sessionsBody : (sessionsBody.sessions ?? [])
@@ -173,30 +146,25 @@ const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => []) :
     session.user?.name ?? null,
     session.user?.sub ?? null
   );
-  console.log("[nav-dash] meRes", meRes.status, "profile?", !!myProfile, "sub", session.user?.sub);
 
   if (!myProfile) {
-    console.log("[nav-dash] no profile after normalization; redirecting to profile");
     redirect("/dashboard/navigator/profile");
   }
+
+  const sessionName = session.user?.name?.trim() ?? "";
+  const sessionNameParts = (() => {
+    if (!sessionName) return { first: "", last: "" };
+    const i = sessionName.indexOf(" ");
+    if (i === -1) return { first: sessionName, last: "" };
+    return { first: sessionName.slice(0, i).trim(), last: sessionName.slice(i + 1).trim() };
+  })();
+
   const profileForGate: NavigatorProfile = {
     ...myProfile,
-    name:
-      (
-        myProfile.name?.trim() ||
-        session.user?.name?.trim() ||
-        myProfile.nav_group?.trim() ||
-        session.user?.email?.trim() ||
-        ""
-      ) || null,
+    first_name: (myProfile.first_name?.trim() || sessionNameParts.first) || "",
+    last_name: (myProfile.last_name?.trim() || sessionNameParts.last) || "",
   };
   if (!isProfileComplete(profileForGate)) {
-    console.log("[nav-dash] profile incomplete", {
-      hasName: !!(profileForGate.name?.trim() ?? ""),
-      languages: profileForGate.languages?.length ?? 0,
-      specialties: profileForGate.specialties?.length ?? 0,
-      hasGroup: !!(profileForGate.nav_group?.trim() ?? ""),
-    });
     redirect("/dashboard/navigator/profile");
   }
   const myProfileDisplay = profileForGate;
@@ -209,10 +177,6 @@ const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => []) :
   const active = mySessions.filter((s) => s.status !== "closed").sort(byRecent);
   const closed = mySessions.filter((s) => s.status === "closed").sort(byRecent);
 
-  const displayName = myProfile?.first_name
-    ? `${myProfile.first_name} ${myProfile.last_name}`.trim()
-    : session.user.email;
-
   return (
     <div className="h-screen bg-gray-50 flex flex-col">
       <DashboardPoller />
@@ -224,7 +188,7 @@ const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => []) :
           </Link>
           <span className="text-sm text-gray-500">
             {myProfileDisplay.nav_group ||
-              myProfileDisplay.name ||
+              `${myProfileDisplay.first_name} ${myProfileDisplay.last_name}`.trim() ||
               session.user.name ||
               session.user.email}
           </span>

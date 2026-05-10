@@ -16,14 +16,12 @@ export default async function NavigatorProfilePage() {
   let profile: NavigatorProfile | null = null;
   try {
     const res = await lambdaFetch("/navigators/me");
-    console.log("[nav-profile] /navigators/me status", res.status, "sub", session.user?.sub);
     if (res.ok) {
       profile = normalizeNavigatorFromLambda(
         await res.json(),
         session.user?.name ?? null,
         session.user?.sub ?? null
       );
-      console.log("[nav-profile] normalized profile?", !!profile);
     } else if (res.status === 401) {
       redirect("/auth/login?returnTo=/dashboard/navigator/profile");
     } else {
@@ -45,7 +43,6 @@ export default async function NavigatorProfilePage() {
           session.user?.name ?? null,
           session.user?.sub ?? null
         );
-        console.log("[nav-profile] fallback profile?", !!profile);
       }
     }
   } catch {
