@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Send, X } from "lucide-react";
 import moment from "moment";
-import { cn } from "@/lib/utils";
 
 const POLL_MS = 3000;
 
@@ -86,7 +85,15 @@ export default function NavigatorChatPage() {
         timestamp: new Date(m.timestamp).toISOString(),
       });
     }
-    if (newMsgs.length > 0) setMessages((prev) => [...prev, ...newMsgs]);
+    if (newMsgs.length > 0) {
+      setMessages((prev) => {
+        const confirmedContents = new Set(newMsgs.map((m) => `${m.role}:${m.content}`));
+        const pruned = prev.filter(
+          (m) => !m.id.startsWith("optimistic-") || !confirmedContents.has(`${m.role}:${m.content}`)
+        );
+        return [...pruned, ...newMsgs];
+      });
+    }
   }, []);
 
   // Poll messages
@@ -111,13 +118,13 @@ export default function NavigatorChatPage() {
     if (!text || isReadOnly) return;
     setInputValue("");
     setSendError(null);
-
-    const pendingId = `pending-${Date.now()}`;
-    setMessages((prev) => [
-      ...prev,
-      { id: pendingId, role: "navigator", content: text, timestamp: new Date().toISOString(), pending: true },
-    ]);
-
+    const optimisticId = `optimistic-${Date.now()}`;
+    setMessages((prev) => [...prev, {
+      id: optimisticId,
+      role: "navigator",
+      content: text,
+      timestamp: new Date().toISOString(),
+    }]);
     try {
       const res = await fetch(`/api/sessions/${sessionId}/navigator-messages`, {
         method: "POST",
@@ -127,11 +134,13 @@ export default function NavigatorChatPage() {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setSendError(err.error ?? "Failed to send");
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       } else {
         localStorage.setItem(`sl_nav_responded_${sessionId}`, Date.now().toString());
       }
     } catch {
       setSendError("Network error");
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
     }
 
     // Remove the optimistic copy — the confirmed message arrives on the next poll.

@@ -233,7 +233,15 @@ setSession(s);
         timestamp: new Date(m.timestamp).toISOString(),
       });
     }
-    if (newMsgs.length > 0) setMessages((prev) => [...prev, ...newMsgs]);
+    if (newMsgs.length > 0) {
+      setMessages((prev) => {
+        const confirmedContents = new Set(newMsgs.map((m) => `${m.role}:${m.content}`));
+        const pruned = prev.filter(
+          (m) => !m.id.startsWith("optimistic-") || !confirmedContents.has(`${m.role}:${m.content}`)
+        );
+        return [...pruned, ...newMsgs];
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -314,6 +322,13 @@ setSession(s);
     if (!text || session?.status === "closed") return;
     setInputValue("");
     setSendError(null);
+    const optimisticId = `optimistic-${Date.now()}`;
+    setMessages((prev) => [...prev, {
+      id: optimisticId,
+      role: "navigator",
+      content: text,
+      timestamp: new Date().toISOString(),
+    }]);
     try {
       const res = await fetch(`/api/sessions/${sessionId}/navigator-messages`, {
         method: "POST",
@@ -323,11 +338,13 @@ setSession(s);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setSendError(err.error ?? "Failed to send");
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       } else {
         localStorage.setItem(`sl_nav_responded_${sessionId}`, Date.now().toString());
       }
     } catch {
       setSendError("Network error");
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
     }
     setTimeout(() => inputRef.current?.focus(), 50);
   };
@@ -351,7 +368,7 @@ setSession(s);
   const isClosed = session.status === "closed";
   const isMySession = myProfile !== null;
   const profileComplete = myFullProfile ? isProfileComplete(myFullProfile) : true;
-const categoryLabel = session.need_category.replace(/_/g, " ");
+  const categoryLabel = session.need_category.replace(/_/g, " ");
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
