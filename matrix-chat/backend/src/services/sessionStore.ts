@@ -49,6 +49,7 @@ class InMemorySessionStore implements SessionStoreInterface {
     session.assignedNavigatorId = navigatorId;
     session.routingVersion = routingVersion;
     session.routingReason = routingReason;
+    session.routingFailReason = null;
     return true;
   }
 

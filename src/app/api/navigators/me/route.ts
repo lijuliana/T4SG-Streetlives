@@ -8,10 +8,16 @@ import {
 
 export async function GET() {
   const session = await auth0.getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const res = await lambdaFetch("/navigators/me");
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    if ((res.status === 403 || res.status === 404) && session?.user?.sub) {
+    // Same idea as dashboard pages: if /me fails for any reason except auth,
+    // try listing and matching the current Auth0 subject (covers older Lambdas and transient 5xx).
+    if (res.status !== 401 && session.user.sub) {
       const allRes = await lambdaFetch("/navigators");
       const allData = await allRes.json().catch(() => []);
       if (allRes.ok) {
@@ -35,11 +41,7 @@ export async function GET() {
     }
     return NextResponse.json(data, { status: res.status });
   }
-  const profile = normalizeNavigatorFromLambda(
-    data,
-    session?.user?.name ?? null,
-    session?.user?.sub ?? null
-  );
+  const profile = normalizeNavigatorFromLambda(data, session.user.name ?? null, session.user.sub);
   return NextResponse.json(profile ?? data, { status: profile ? 200 : res.status });
 }
 
@@ -49,10 +51,14 @@ export async function GET() {
 // GET /navigators/me returns 404 when no row exists yet.
 export async function PUT(req: NextRequest) {
   const session = await auth0.getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = (await req.json()) as Record<string, unknown>;
   const payload = JSON.stringify(mapNavigatorUpsertBodyForLambda(body));
   const displayNameFallback =
-    (typeof body.name === "string" ? body.name : null) ?? session?.user?.name ?? null;
+    (typeof body.name === "string" ? body.name : null) ?? session.user.name ?? null;
 
   const meRes = await lambdaFetch("/navigators/me");
   if (meRes.ok) {
@@ -68,34 +74,23 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const auth0UserId: string | undefined =
-    typeof body.auth0_user_id === "string"
-      ? body.auth0_user_id
-      : typeof body.userId === "string"
-        ? body.userId
-        : undefined;
-  if (auth0UserId) {
-    const allRes = await lambdaFetch("/navigators");
-    if (allRes.ok) {
-      const all = (await allRes.json().catch(() => [])) as Array<{
-        id: string;
-        userId?: string;
-        auth0_user_id?: string;
-      }>;
-      if (Array.isArray(all)) {
-        const existing = all.find(
-          (n) => n.userId === auth0UserId || n.auth0_user_id === auth0UserId,
-        );
-        if (existing?.id) {
-          const patchRes = await lambdaFetch(`/navigators/${existing.id}`, {
-            method: "PATCH",
-            body: payload,
-          });
-          const raw = await patchRes.json().catch(() => null);
-          const profile = normalizeNavigatorFromLambda(raw, displayNameFallback, session?.user?.sub ?? null);
-          return NextResponse.json(profile ?? raw, { status: patchRes.status });
-        }
-      }
+  const allRes = await lambdaFetch("/navigators");
+  if (allRes.ok) {
+    const allRaw = await allRes.json().catch(() => []);
+    const list = Array.isArray(allRaw)
+      ? allRaw
+      : ((allRaw as { navigators?: Array<{ id: string; userId?: string; auth0_user_id?: string }> })?.navigators ?? []);
+    const existing = list.find(
+      (n) => n.auth0_user_id === session.user.sub || n.userId === session.user.sub,
+    );
+    if (existing?.id) {
+      const patchRes = await lambdaFetch(`/navigators/${existing.id}`, {
+        method: "PATCH",
+        body: payload,
+      });
+      const raw = await patchRes.json().catch(() => null);
+      const profile = normalizeNavigatorFromLambda(raw, displayNameFallback, session.user.sub);
+      return NextResponse.json(profile ?? raw, { status: patchRes.status });
     }
   }
 
@@ -104,6 +99,6 @@ export async function PUT(req: NextRequest) {
     body: payload,
   });
   const raw = await createRes.json().catch(() => null);
-  const profile = normalizeNavigatorFromLambda(raw, displayNameFallback, session?.user?.sub ?? null);
+  const profile = normalizeNavigatorFromLambda(raw, displayNameFallback, session.user.sub);
   return NextResponse.json(profile ?? raw, { status: createRes.status });
 }

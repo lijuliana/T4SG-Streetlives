@@ -1,10 +1,31 @@
 import { auth0 } from "@/lib/auth0";
 import { lambdaFetch } from "@/lib/lambda";
+import { isTransferRequested } from "@/lib/transferRequestStore";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import moment from "moment";
 import { ChevronDown, Home } from "lucide-react";
+import ShowMoreList from "@/components/ShowMoreList";
+
+const CATEGORY_ICONS: Record<string, string> = {
+  housing:        "/new-icons/house.svg",
+  accommodations: "/new-icons/house.svg",
+  health:         "/new-icons/heart-chart.svg",
+  benefits:       "/new-icons/checklist.svg",
+  work:           "/new-icons/checklist.svg",
+  legal:          "/new-icons/scales.svg",
+  food:           "/new-icons/store.svg",
+  clothing:       "/new-icons/bag.svg",
+  personal_care:  "/new-icons/umbrella.svg",
+  family_services:"/new-icons/person.svg",
+  youth_services: "/new-icons/person.svg",
+  connection:     "/new-icons/wifi.svg",
+  education:      "/new-icons/checklist.svg",
+  other:          "/new-icons/chat.svg",
+};
 import { DashboardPoller } from "@/components/DashboardPoller";
+import { DeleteSessionButton } from "@/components/DeleteSessionButton";
 import { cn } from "@/lib/utils";
 
 interface Session {
@@ -21,14 +42,48 @@ interface Session {
   outcome: string[] | null;
   follow_up_date: string | null;
   coaching_notes: string | null;
+  transfer_requested?: boolean | null;
 }
+
+type AvailabilitySchedule = Record<string, { start: string; end: string }>;
 
 interface NavProfile {
   id: string;
   auth0_user_id: string;
+  first_name: string | null;
+  last_name: string | null;
   nav_group: string;
   status: string;
   capacity: number;
+  availability_schedule: AvailabilitySchedule | null;
+  expertise_tags: string[] | null;
+  languages: string[] | null;
+}
+
+function needsOnboarding(nav: NavProfile): boolean {
+  return (
+    !nav.expertise_tags?.length ||
+    !nav.languages?.length ||
+    !nav.availability_schedule ||
+    Object.keys(nav.availability_schedule).length === 0
+  );
+}
+
+const DAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function isInScheduledHours(schedule: AvailabilitySchedule | null | undefined): boolean {
+  if (!schedule) return false;
+  const now = new Date();
+  const slot = schedule[DAY_KEYS[now.getDay()]];
+  if (!slot) return false;
+  const toMins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const cur = now.getHours() * 60 + now.getMinutes();
+  return cur >= toMins(slot.start) && cur < toMins(slot.end);
+}
+
+function navDisplayName(nav: NavProfile): string {
+  const name = [nav.first_name, nav.last_name].filter(Boolean).join(" ");
+  return name || nav.nav_group.replace(/_/g, " ");
 }
 
 const AVATAR_COLORS = [
@@ -48,19 +103,44 @@ function avatarColor(name: string) {
   return AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
 }
 
-function SessionRow({ session, badge }: { session: Session; badge?: React.ReactNode }) {
+const STATUS_DOT: Record<string, string> = {
+  available: "bg-green-400",
+  away: "bg-amber-400",
+  offline: "bg-gray-300",
+};
+
+function SessionRow({ session, badge, navigator, deletable }: { session: Session; badge?: React.ReactNode; navigator?: NavProfile; deletable?: boolean }) {
+  const inHours = navigator ? isInScheduledHours(navigator.availability_schedule) : false;
+
   return (
     <Link
       href={`/dashboard/supervisor/${session.id}`}
       className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 hover:border-gray-300 hover:shadow-sm transition"
     >
-      <div className="w-9 h-9 rounded-full bg-brand-yellow flex items-center justify-center flex-shrink-0">
-        <span className="text-xs font-medium text-gray-900">
-          {session.need_category.slice(0, 2).toUpperCase()}
-        </span>
+      <div className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
+        <Image
+          src={CATEGORY_ICONS[session.need_category] ?? "/new-icons/chat.svg"}
+          alt=""
+          width={20}
+          height={20}
+          aria-hidden
+        />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 capitalize">{session.need_category.replace(/_/g, " ")}</p>
+        {navigator && (
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[navigator.status] ?? "bg-gray-300"}`} />
+            <span className="text-sm font-medium text-gray-900 truncate">{navDisplayName(navigator)}</span>
+            {navigator.availability_schedule && (
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                inHours ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"
+              }`}>
+                {inHours ? "In hours" : "Out of hours"}
+              </span>
+            )}
+          </div>
+        )}
+        <p className="text-sm text-gray-500 capitalize">{session.need_category.replace(/_/g, " ")}</p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {badge}
           {session.language && (
@@ -84,6 +164,7 @@ function SessionRow({ session, badge }: { session: Session; badge?: React.ReactN
       )}>
         {session.status === "closed" ? "Closed" : "Active"}
       </span>
+      {deletable && <DeleteSessionButton sessionId={session.id} />}
     </Link>
   );
 }
@@ -103,8 +184,10 @@ function NavigatorRow({ nav, sessions }: { nav: NavProfile; sessions: Session[] 
   const closed = navSessions.filter((s) => s.status === "closed");
   const load = nav.capacity > 0 ? active.length / nav.capacity : 0;
   const barColor = load > 1 ? "bg-orange-400" : load >= 0.8 ? "bg-amber-400" : "bg-green-400";
-  const initials = avatarInitials(nav.nav_group);
-  const bg = avatarColor(nav.nav_group);
+  const displayName = navDisplayName(nav);
+  const initials = avatarInitials(displayName);
+  const bg = avatarColor(displayName);
+  const inHours = isInScheduledHours(nav.availability_schedule);
 
   return (
     <details suppressHydrationWarning className="group bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -113,8 +196,23 @@ function NavigatorRow({ nav, sessions }: { nav: NavProfile; sessions: Session[] 
           <span className="text-xs font-semibold text-white">{initials}</span>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900">{nav.nav_group}</p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[nav.status] ?? "bg-gray-300"}`} />
+            <p className="text-sm font-medium text-gray-900">{displayName}</p>
+            <p className="text-xs text-gray-400">{nav.nav_group.replace(/_/g, " ")}</p>
+            {needsOnboarding(nav) ? (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-600">
+                Needs Onboarding
+              </span>
+            ) : nav.availability_schedule && (
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                inHours ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"
+              }`}>
+                {inHours ? "In hours" : "Out of hours"}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5 ml-3.5">
             <span className="text-green-600 font-medium">{active.length} active</span>
             {"  ·  "}
             <span>{closed.length} closed</span>
@@ -130,7 +228,16 @@ function NavigatorRow({ nav, sessions }: { nav: NavProfile; sessions: Session[] 
       {active.length > 0 && (
         <div className="px-4 pb-3 pt-2 space-y-2 border-t border-gray-100">
           {active.map((s) => (
-            <SessionRow key={s.id} session={s} />
+            <SessionRow
+              key={s.id}
+              session={s}
+              navigator={nav}
+              badge={isTransferRequested(s.id) ? (
+                <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">
+                  Transfer Requested
+                </span>
+              ) : undefined}
+            />
           ))}
         </div>
       )}
@@ -162,6 +269,8 @@ export default async function SupervisorDashboardPage() {
     ? Array.isArray(navsBody) ? navsBody : (navsBody.navigators ?? [])
     : [];
 
+  const navById = new Map(navigators.map((n) => [n.id, n]));
+
   const byRecent = (a: Session, b: Session) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 
@@ -170,6 +279,7 @@ export default async function SupervisorDashboardPage() {
     .sort(byRecent);
 
   const active = allSessions.filter((s) => s.status !== "closed");
+  const transferRequested = active.filter((s) => isTransferRequested(s.id)).sort(byRecent);
   const unassigned = allSessions.filter((s) => s.navigator_id === null && s.status !== "closed").sort(byRecent);
   const approvedArchive = allSessions
     .filter((s) => s.approved === true)
@@ -236,6 +346,8 @@ export default async function SupervisorDashboardPage() {
               <SessionRow
                 key={s.id}
                 session={s}
+                deletable
+                navigator={s.navigator_id ? navById.get(s.navigator_id) : undefined}
                 badge={s.submitted_for_review === true ? (
                   <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">
                     Needs Review
@@ -266,6 +378,36 @@ export default async function SupervisorDashboardPage() {
             )}
           </section>
 
+          {/* Transfer Requested */}
+          <section className="space-y-2">
+            <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+              Transfer Requested
+              {transferRequested.length > 0 && (
+                <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full text-[10px] font-semibold">
+                  {transferRequested.length}
+                </span>
+              )}
+            </h2>
+            {transferRequested.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-xl px-5 py-8 text-center">
+                <p className="text-sm text-gray-400">No transfer requests</p>
+              </div>
+            ) : (
+              transferRequested.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  navigator={s.navigator_id ? navById.get(s.navigator_id) : undefined}
+                  badge={
+                    <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">
+                      Transfer Requested
+                    </span>
+                  }
+                />
+              ))
+            )}
+          </section>
+
           {/* Unassigned */}
           <section className="space-y-2">
             <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
@@ -285,6 +427,7 @@ export default async function SupervisorDashboardPage() {
                 <SessionRow
                   key={s.id}
                   session={s}
+                  navigator={s.navigator_id ? navById.get(s.navigator_id) : undefined}
                   badge={
                     <span className="text-[10px] bg-orange-50 text-orange-500 px-1.5 py-0.5 rounded-full font-medium">
                       New Request
@@ -303,7 +446,9 @@ export default async function SupervisorDashboardPage() {
                 <p className="text-sm text-gray-400">No approved sessions yet</p>
               </div>
             ) : (
-              approvedArchive.map((s) => <SessionRow key={s.id} session={s} />)
+              <ShowMoreList>
+                {approvedArchive.map((s) => <SessionRow key={s.id} session={s} />)}
+              </ShowMoreList>
             )}
           </section>
         </div>

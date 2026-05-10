@@ -20,12 +20,15 @@ interface LocalMessage {
 }
 
 const NEED_CATEGORIES = [
-  { value: "housing", label: "Housing" },
-  { value: "employment", label: "Employment" },
+  { value: "accommodations", label: "Accommodations" },
+  { value: "food", label: "Food" },
+  { value: "clothing", label: "Clothing" },
+  { value: "personal_care", label: "Personal Care" },
   { value: "health", label: "Health" },
-  { value: "benefits", label: "Benefits" },
-  { value: "youth_services", label: "Youth Services" },
-  { value: "education", label: "Education" },
+  { value: "family_services", label: "Family Services" },
+  { value: "work", label: "Work" },
+  { value: "legal", label: "Legal" },
+  { value: "connection", label: "Connection" },
   { value: "other", label: "Other" },
 ];
 
@@ -68,7 +71,7 @@ export function ChatContent({ onClose }: ChatContentProps) {
   const router = useRouter();
 
   const [chatState, setChatState] = useState<ChatState>("picker");
-  const [needCategory, setNeedCategory] = useState("housing");
+  const [needCategory, setNeedCategory] = useState("accommodations");
   const [language, setLanguage] = useState("en");
 
   // Session credentials stored in localStorage for tab persistence
@@ -81,6 +84,9 @@ export function ChatContent({ onClose }: ChatContentProps) {
   const [error, setError] = useState<string | null>(null);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [closedByUser, setClosedByUser] = useState(false);
+  const [queuedReason, setQueuedReason] = useState<string | null>(null);
+  const [transferRequested, setTransferRequested] = useState(false);
+  const [requestingTransfer, setRequestingTransfer] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -99,10 +105,13 @@ export function ChatContent({ onClose }: ChatContentProps) {
     const storedId = localStorage.getItem("sl_session_id");
     const storedToken = localStorage.getItem("sl_session_token");
     const storedState = localStorage.getItem("sl_session_state") as ChatState | null;
+    const storedQueuedReason = localStorage.getItem("sl_session_queued_reason");
     if (storedId && storedToken && storedState && storedState !== "closed") {
       setSessionId(storedId);
       setSessionToken(storedToken);
       setChatState(storedState);
+      if (storedQueuedReason) setQueuedReason(storedQueuedReason);
+      // navigator name is stored in localStorage and used when re-rendering system messages
     }
   }, []);
 
@@ -166,11 +175,32 @@ export function ChatContent({ onClose }: ChatContentProps) {
         if (session.status === "active") {
           clearInterval(statusPollRef.current!);
           statusPollRef.current = null;
+
+          let navName: string | null = null;
+          if (session.assignedNavigatorId) {
+            try {
+              const navRes = await fetch(`/api/guest/navigators/${session.assignedNavigatorId}`);
+              if (navRes.ok) {
+                const navData = await navRes.json();
+                navName = navData.name ?? null;
+              }
+            } catch { /* best effort */ }
+          }
+          if (navName) {
+            localStorage.setItem("sl_session_navigator_name", navName);
+          }
+
           setChatState("live");
           localStorage.setItem("sl_session_state", "live");
+          localStorage.removeItem("sl_session_queued_reason");
           setMessages((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), role: "system", content: "A navigator has joined the chat.", timestamp: new Date().toISOString() },
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content: `You are connected with ${navName ?? "a navigator"}.`,
+              timestamp: new Date().toISOString(),
+            },
           ]);
           startMessagePolling(id, token);
           setTimeout(() => inputRef.current?.focus(), 100);
@@ -199,21 +229,38 @@ export function ChatContent({ onClose }: ChatContentProps) {
       const session = await createSession(needCategory, language);
       const { sessionId: id, sessionUserToken: token, status } = session;
 
+      if (!id || !token) {
+        setError("Session could not be started. Please try again.");
+        return;
+      }
+
       setSessionId(id);
       setSessionToken(token);
       localStorage.setItem("sl_session_id", id);
       localStorage.setItem("sl_session_token", token);
 
       if (status === "active") {
+        const navName = session.assignedNavigatorName ?? null;
+        if (navName) {
+          localStorage.setItem("sl_session_navigator_name", navName);
+        }
         setChatState("live");
         localStorage.setItem("sl_session_state", "live");
-        setMessages([{ id: crypto.randomUUID(), role: "system", content: "You are connected with a navigator.", timestamp: new Date().toISOString() }]);
+        setMessages([{
+          id: crypto.randomUUID(),
+          role: "system",
+          content: `You are connected with ${navName ?? "a navigator"}.`,
+          timestamp: new Date().toISOString(),
+        }]);
         startMessagePolling(id, token);
         setTimeout(() => inputRef.current?.focus(), 100);
       } else {
-        // unassigned — waiting room
+        // unassigned — put in queue
+        const reason = session.routingFailReason ?? "No available navigators";
         setChatState("waiting");
+        setQueuedReason(reason);
         localStorage.setItem("sl_session_state", "waiting");
+        localStorage.setItem("sl_session_queued_reason", reason);
         startStatusPolling(id, token);
       }
     } catch (err) {
@@ -250,6 +297,8 @@ export function ChatContent({ onClose }: ChatContentProps) {
     localStorage.removeItem("sl_session_state");
     localStorage.removeItem("sl_session_need_category");
     localStorage.removeItem("sl_session_created_at");
+    localStorage.removeItem("sl_session_queued_reason");
+    localStorage.removeItem("sl_session_navigator_name");
   };
 
   const handleLeave = () => {
@@ -272,6 +321,20 @@ export function ChatContent({ onClose }: ChatContentProps) {
     setClosedByUser(true);
     setChatState("closed");
     setShowEndConfirm(false);
+  };
+
+  const handleRequestTransfer = async () => {
+    if (!sessionId || !sessionToken) return;
+    setRequestingTransfer(true);
+    try {
+      const res = await fetch(`/api/guest/sessions/${sessionId}/request-transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: sessionToken }),
+      });
+      if (res.ok) setTransferRequested(true);
+    } catch { /* best effort */ }
+    finally { setRequestingTransfer(false); }
   };
 
   const handleStartNewChat = () => {
@@ -350,8 +413,14 @@ export function ChatContent({ onClose }: ChatContentProps) {
         )}
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
           <div className="w-12 h-12 rounded-full border-4 border-brand-yellow border-t-transparent animate-spin" />
-          <p className="text-gray-700 font-medium">Looking for an available navigator…</p>
-          <p className="text-sm text-gray-400">This usually takes less than a minute. Please stay on this page.</p>
+          <p className="text-gray-700 font-medium">You&rsquo;re in the queue</p>
+          <p className="text-sm text-gray-400">
+            {queuedReason?.includes("speaks")
+              ? "No navigators are available in your language right now."
+              : "All navigators are currently unavailable."
+            }{" "}
+            We&rsquo;ll connect you as soon as one becomes available. Please stay on this page.
+          </p>
         </div>
       </div>
     );
@@ -465,10 +534,24 @@ export function ChatContent({ onClose }: ChatContentProps) {
         </div>
       )}
 
-      <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex-shrink-0">
-        <p className="text-xs text-gray-400 text-center">
+      <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex-shrink-0 flex items-center justify-between gap-2">
+        <p className="text-xs text-gray-400 flex-1 text-center">
           {chatState === "closed" ? (closedByUser ? "You ended this session" : "This session has ended") : "Connected with a peer navigator"}
         </p>
+        {chatState === "live" && (
+          transferRequested ? (
+            <span className="text-[10px] text-amber-600 flex-shrink-0">Transfer requested</span>
+          ) : (
+            <button
+              type="button"
+              onClick={handleRequestTransfer}
+              disabled={requestingTransfer}
+              className="text-[10px] text-gray-400 hover:text-gray-600 underline underline-offset-2 flex-shrink-0 transition disabled:opacity-50"
+            >
+              {requestingTransfer ? "Requesting…" : "Request transfer"}
+            </button>
+          )
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">

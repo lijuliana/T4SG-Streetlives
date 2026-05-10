@@ -4,9 +4,27 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import Image from "next/image";
 import { ArrowLeft, Send, Circle, UserPlus, ArrowRight, CheckCircle, Home } from "lucide-react";
 import moment from "moment";
 import { cn } from "@/lib/utils";
+
+const CATEGORY_ICONS: Record<string, string> = {
+  housing:        "/new-icons/house.svg",
+  accommodations: "/new-icons/house.svg",
+  health:         "/new-icons/heart-chart.svg",
+  benefits:       "/new-icons/checklist.svg",
+  work:           "/new-icons/checklist.svg",
+  legal:          "/new-icons/scales.svg",
+  food:           "/new-icons/store.svg",
+  clothing:       "/new-icons/bag.svg",
+  personal_care:  "/new-icons/umbrella.svg",
+  family_services:"/new-icons/person.svg",
+  youth_services: "/new-icons/person.svg",
+  connection:     "/new-icons/wifi.svg",
+  education:      "/new-icons/checklist.svg",
+  other:          "/new-icons/chat.svg",
+};
 import { isProfileComplete } from "@/lib/store";
 import type { NavigatorProfile } from "@/lib/store";
 
@@ -31,15 +49,29 @@ interface Session {
   submitted_for_review: boolean | null;
   approved: boolean | null;
   coaching_notes: string | null;
+  transfer_requested?: boolean | null;
 }
 
 interface NavProfile {
   id: string;
   auth0_user_id: string;
+  first_name: string;
+  last_name: string;
   nav_group: string;
   status: string;
   capacity: number;
   languages: string[];
+}
+
+function navFullName(n: NavProfile): string {
+  return `${n.first_name ?? ""} ${n.last_name ?? ""}`.trim() || n.nav_group || n.auth0_user_id;
+}
+
+function resolveActorName(actorId: string, navList: NavProfile[]): string {
+  if (actorId === "system") return "System";
+  if (actorId === "user" || actorId.endsWith("@clients")) return "User";
+  const nav = navList.find((n) => n.auth0_user_id === actorId || n.id === actorId);
+  return nav ? navFullName(nav) : "Supervisor";
 }
 
 interface SessionEvent {
@@ -109,9 +141,9 @@ export default function NavigatorSessionDetailPage() {
   const [myFullProfile, setMyFullProfile] = useState<NavigatorProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Transfer
-  const [transferTarget, setTransferTarget] = useState("");
-  const [transferring, setTransferring] = useState(false);
+  // Transfer request
+  const [transferRequested, setTransferRequested] = useState(false);
+  const [requestingTransfer, setRequestingTransfer] = useState(false);
 
   // Notes
   const [notes, setNotes] = useState("");
@@ -120,6 +152,7 @@ export default function NavigatorSessionDetailPage() {
   // Close flow
   const [showClosePanel, setShowClosePanel] = useState(false);
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>([]);
+  const [closeReason, setCloseReason] = useState("");
   const [closing, setClosing] = useState(false);
 
   // Chat
@@ -171,6 +204,8 @@ export default function NavigatorSessionDetailPage() {
       setSession(s);
       setEvents(Array.isArray(evts) ? evts : []);
       setNotes(s.notes ?? "");
+      // Lambda doesn't store transfer_requested — restore from localStorage
+      setTransferRequested(localStorage.getItem(`sl_xfer_${sessionId}`) === "true");
       setNavigators(navList);
 
       if (meRes.ok) {
@@ -230,25 +265,19 @@ export default function NavigatorSessionDetailPage() {
     }
   };
 
-  const handleTransfer = async () => {
-    if (!transferTarget) return;
-    setTransferring(true);
+  const handleRequestTransfer = async () => {
+    setRequestingTransfer(true);
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/transfer`, {
-        method: "POST",
+      await fetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_navigator_id: transferTarget }),
+        body: JSON.stringify({ transfer_requested: true }),
       });
-      if (res.ok) {
-        toast.success("Session transferred");
-        router.refresh();
-        router.push("/dashboard/navigator");
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error ?? "Transfer failed");
-      }
+      setTransferRequested(true);
+      localStorage.setItem(`sl_xfer_${sessionId}`, "true");
+      toast.success("Transfer requested — a supervisor will reassign this session");
     } finally {
-      setTransferring(false);
+      setRequestingTransfer(false);
     }
   };
 
@@ -266,6 +295,7 @@ export default function NavigatorSessionDetailPage() {
         body: JSON.stringify({
           outcome: selectedOutcomes,
           submitted_for_review: true,
+          ...(closeReason.trim() ? { notes: closeReason.trim() } : {}),
         }),
       });
       toast.success("Session closed and submitted for review");
@@ -318,8 +348,7 @@ export default function NavigatorSessionDetailPage() {
   const isClosed = session.status === "closed";
   const isMySession = myProfile !== null;
   const profileComplete = myFullProfile ? isProfileComplete(myFullProfile) : true;
-  const otherNavigators = navigators.filter((n) => n.id !== session.navigator_id && n.status === "available");
-  const categoryLabel = session.need_category.replace(/_/g, " ");
+const categoryLabel = session.need_category.replace(/_/g, " ");
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -336,6 +365,9 @@ export default function NavigatorSessionDetailPage() {
         >
           <ArrowLeft size={20} strokeWidth={2} />
         </button>
+        <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
+          <Image src={CATEGORY_ICONS[session.need_category] ?? "/new-icons/chat.svg"} alt="" width={18} height={18} aria-hidden />
+        </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 capitalize">{categoryLabel}</p>
           <p className="text-xs text-gray-400">
@@ -369,11 +401,19 @@ export default function NavigatorSessionDetailPage() {
               <p><span className="text-gray-400">Closed:</span> {moment(session.closed_at).format("MMM D, YYYY [at] h:mm A")}</p>
             )}
             {session.navigator_id ? (
-              <p><span className="text-gray-400">Navigator:</span> {myProfile?.nav_group ?? session.navigator_id}</p>
+              <p><span className="text-gray-400">Navigator:</span> {myProfile ? navFullName(myProfile) : session.navigator_id}</p>
             ) : (
               <p className="text-amber-500">Unassigned</p>
             )}
           </div>
+
+          {/* Supervisor coaching notes — shown after a return */}
+          {session.coaching_notes && !session.approved && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 space-y-1">
+              <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Returned by Supervisor</p>
+              <p className="text-sm text-amber-900 whitespace-pre-wrap">{session.coaching_notes}</p>
+            </div>
+          )}
 
           {/* Session notes */}
           <div>
@@ -405,7 +445,7 @@ export default function NavigatorSessionDetailPage() {
                       <p className="text-sm text-gray-700">{EVENT_LABELS[event.event_type]}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {moment(event.created_at).format("MMM D [at] h:mm A")}
-                        {event.actor_id ? ` · ${event.actor_id}` : ""}
+                        {event.actor_id ? ` · ${resolveActorName(event.actor_id, navigators)}` : ""}
                       </p>
                     </div>
                   </div>
@@ -415,31 +455,25 @@ export default function NavigatorSessionDetailPage() {
           </div>
 
 
-          {/* Transfer */}
+          {/* Request Transfer */}
           {!isClosed && (
             <div className="space-y-2">
               <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wide">Transfer Session</h2>
-              <select
-                aria-label="Select navigator to transfer to"
-                value={transferTarget}
-                onChange={(e) => setTransferTarget(e.target.value)}
-                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-yellow bg-white"
-              >
-                <option value="">Select a navigator…</option>
-                {navigators
-                  .filter((n) => n.id !== myProfile?.id)
-                  .map((n) => (
-                    <option key={n.id} value={n.id}>{n.nav_group}</option>
-                  ))}
-              </select>
-              <button
-                type="button"
-                onClick={handleTransfer}
-                disabled={!transferTarget || transferring}
-                className="w-full border border-gray-200 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition disabled:opacity-40"
-              >
-                {transferring ? "Transferring…" : "Transfer"}
-              </button>
+              {transferRequested ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <p className="text-xs font-medium text-amber-700">Transfer requested</p>
+                  <p className="text-xs text-amber-600 mt-0.5">A supervisor will reassign this session.</p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRequestTransfer}
+                  disabled={requestingTransfer}
+                  className="w-full border border-gray-200 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition disabled:opacity-40"
+                >
+                  {requestingTransfer ? "Requesting…" : "Request Transfer"}
+                </button>
+              )}
             </div>
           )}
 
@@ -479,6 +513,17 @@ export default function NavigatorSessionDetailPage() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500">Reason <span className="text-gray-400">(optional)</span></label>
+                <textarea
+                  value={closeReason}
+                  onChange={(e) => setCloseReason(e.target.value)}
+                  placeholder="Add any notes about why this session is closing…"
+                  rows={2}
+                  className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-gray-300"
+                />
               </div>
 
               <div className="flex gap-2">
