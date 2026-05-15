@@ -47,16 +47,10 @@ interface Session {
 interface NavProfile {
   id: string;
   auth0_user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  nav_group: string;
-  status: string;
   first_name: string;
   last_name: string;
-}
-
-function navFullName(n: NavProfile): string {
-  return `${n.first_name ?? ""} ${n.last_name ?? ""}`.trim() || n.nav_group || n.auth0_user_id;
+  nav_group: string;
+  status: string;
 }
 
 function navFullName(nav: NavProfile): string {
