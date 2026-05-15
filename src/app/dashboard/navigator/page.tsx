@@ -22,8 +22,19 @@ const CATEGORY_ICONS: Record<string, string> = {
   education:      "/new-icons/checklist.svg",
   other:          "/new-icons/chat.svg",
 };
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", zh: "Chinese",
+  ar: "Arabic", pt: "Portuguese", ru: "Russian", ko: "Korean",
+  vi: "Vietnamese", ht: "Haitian Creole", pl: "Polish", it: "Italian",
+};
+
+function languageLabel(code: string): string {
+  return LANGUAGE_NAMES[code.toLowerCase()] ?? code.toUpperCase();
+}
+
 import { OverdueFlair } from "@/components/OverdueFlair";
 import { DashboardPoller } from "@/components/DashboardPoller";
+import ShowMoreList from "@/components/ShowMoreList";
 import { isProfileComplete } from "@/lib/store";
 import type { NavigatorProfile } from "@/lib/store";
 import { normalizeNavigatorFromLambda } from "@/lib/navigatorProfile";
@@ -41,6 +52,18 @@ interface RealSession {
   approved: boolean | null;
   coaching_notes: string | null;
 }
+
+interface NavProfile {
+  id: string;
+  auth0_user_id: string;
+  first_name: string;
+  last_name: string;
+  nav_group: string;
+  status: string;
+  capacity: number;
+}
+
+
 
 function SessionRow({ session }: { session: RealSession }) {
   const isUnassigned = session.navigator_id === null;
@@ -67,7 +90,7 @@ function SessionRow({ session }: { session: RealSession }) {
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {session.language && (
             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-              {session.language.toUpperCase()}
+              {languageLabel(session.language)}
             </span>
           )}
           {session.routing_reason && (
@@ -279,7 +302,9 @@ export default async function NavigatorDashboardPage() {
                   <p className="text-sm text-gray-400">No closed sessions yet</p>
                 </div>
               ) : (
-                closed.map((s) => <SessionRow key={s.id} session={s} />)
+                <ShowMoreList>
+                  {closed.map((s) => <SessionRow key={s.id} session={s} />)}
+                </ShowMoreList>
               )}
             </div>
           </details>
