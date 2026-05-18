@@ -25,6 +25,7 @@ import {
   fetchRoomMessages,
   inviteToRoom,
   kickFromRoom,
+  leaveRoom,
 } from "../services/matrixService.js";
 import { sessionStore } from "../services/sessionStore.js";
 import { navigatorStore } from "../services/navigatorStore.js";
@@ -242,6 +243,32 @@ router.post("/:sessionId/close", (req: Request, res: Response) => {
   });
 
   res.json({ ok: true, closedAt });
+});
+
+/**
+ * DELETE /api/sessions/:sessionId
+ *
+ * Permanently removes a session record and has the service account leave the
+ * associated Matrix room. Intended only for approved sessions deleted from the
+ * supervisor archive — not a general-purpose status change.
+ *
+ * The bot leaves the room rather than purging it because the service account
+ * operates via the standard Client-Server API and does not hold homeserver
+ * admin privileges. After the bot leaves the room becomes inactive.
+ */
+router.delete("/:sessionId", async (req: Request, res: Response) => {
+  const session = sessionStore.findById(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  leaveRoom(BASE_URL, session.matrixRoomId).catch((err: unknown) => {
+    console.error("[sessions] Matrix leaveRoom error (non-fatal):", err);
+  });
+
+  sessionStore.remove(session.sessionId);
+  res.json({ ok: true });
 });
 
 /**

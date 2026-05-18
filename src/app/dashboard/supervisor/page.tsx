@@ -368,7 +368,6 @@ export default async function SupervisorDashboardPage() {
               <SessionRow
                 key={s.id}
                 session={s}
-                deletable
                 navigator={s.navigator_id ? navById.get(s.navigator_id) : undefined}
                 badge={s.submitted_for_review === true ? (
                   <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">
@@ -465,7 +464,7 @@ export default async function SupervisorDashboardPage() {
               </div>
             ) : (
               <ShowMoreList>
-                {approvedArchive.map((s) => <SessionRow key={s.id} session={s} />)}
+                {approvedArchive.map((s) => <SessionRow key={s.id} session={s} deletable />)}
               </ShowMoreList>
             )}
           </section>

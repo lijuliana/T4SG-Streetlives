@@ -14,7 +14,7 @@
 const DAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 // Maps ISO 639-1 codes to the full language name format Lambda stores.
-const ISO_TO_FULL: Record<string, string> = {
+export const ISO_TO_FULL: Record<string, string> = {
   en: "english",
   es: "spanish",
   fr: "french",
@@ -88,7 +88,7 @@ export function isWithinSchedule(
 
 export function pickNavigator(
   navigators: LambdaNavigator[],
-  activeLoadMap: Record<string, number>,
+  activeLoadMap: Record<string, number> | null,
   input: RoutingInput,
   now: Date = new Date(),
 ): RoutingPick | null {
@@ -96,14 +96,20 @@ export function pickNavigator(
     if (n.status !== "available" || (n.capacity ?? 0) <= 0) return false;
     if (!n.expertise_tags?.length || !n.languages?.length) return false;
     if (!isWithinSchedule(n.availability_schedule, now)) return false;
-    return (activeLoadMap[n.id] ?? 0) < (n.capacity ?? 0);
+    // When load data is unavailable (null), skip the load-vs-capacity check rather
+    // than treating every navigator as load=0 (which falsely passes over-capacity navigators).
+    if (activeLoadMap !== null) {
+      return (activeLoadMap[n.id] ?? 0) < (n.capacity ?? 0);
+    }
+    return true;
   });
 
   if (eligible.length === 0) return null;
 
+  const getLoad = (n: LambdaNavigator) => (activeLoadMap !== null ? (activeLoadMap[n.id] ?? 0) : 0);
   const rankByLoad = (pool: LambdaNavigator[]) =>
     pool
-      .map((n) => ({ n, ratio: (activeLoadMap[n.id] ?? 0) / n.capacity }))
+      .map((n) => ({ n, ratio: getLoad(n) / n.capacity }))
       .sort((a, b) => a.ratio - b.ratio || a.n.id.localeCompare(b.n.id));
 
   const lang = input.language?.toLowerCase() ?? null;

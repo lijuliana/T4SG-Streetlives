@@ -198,3 +198,21 @@ export async function kickFromRoom(
     ...(reason && { reason }),
   });
 }
+
+/**
+ * Has the service account leave a Matrix room.
+ * Called when a session is permanently deleted so the bot is not left sitting
+ * in an orphaned room indefinitely.
+ *
+ * leaveRoom is preferred over a server-side purge (deleteRoom) because the
+ * service account uses the standard Client-Server API and does not hold
+ * homeserver admin privileges. The room remains on the homeserver after the
+ * bot leaves but becomes inactive — no admin is present and no further
+ * messages can be routed to it.
+ */
+export async function leaveRoom(
+  baseUrl: string,
+  roomId: string,
+): Promise<void> {
+  await matrixRequest("POST", baseUrl, `/rooms/${encodeURIComponent(roomId)}/leave`, {});
+}

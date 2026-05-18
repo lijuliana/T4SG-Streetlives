@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pickNavigator, isWithinSchedule, LambdaNavigator } from "@/lib/routing";
+import { pickNavigator, isWithinSchedule, LambdaNavigator, ISO_TO_FULL } from "@/lib/routing";
 import { setSessionNeedCategory } from "@/lib/transferRequestStore";
 
 const LAMBDA = process.env.NEXT_PUBLIC_API_URL!;
@@ -39,8 +39,13 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const needCategory: string = body.needCategory ?? body.need_category ?? "other";
   const language: string | undefined = body.language;
+  // Normalize ISO code → full name so Lambda's routing can match navigator language profiles.
+  // e.g. "en" → "english", "es" → "spanish". Unknown codes pass through unchanged.
+  const languageNormalized: string | undefined = language
+    ? (ISO_TO_FULL[language.toLowerCase()] ?? language)
+    : undefined;
 
-  console.log("[session:create] →", `needCategory=${needCategory} language=${language ?? "(none)"}`);
+  console.log("[session:create] →", `needCategory=${needCategory} language=${language ?? "(none)"} → ${languageNormalized ?? "(none)"}`);
 
   // Get M2M token — without it we can't fetch navigator/session data for routing
   let m2mToken: string;
@@ -74,31 +79,66 @@ export async function POST(req: Request) {
   const navList: LambdaNavigator[] = Array.isArray(navsBody) ? navsBody : (navsBody.navigators ?? []);
 
   console.log(`[session:create] sessions fetch: status=${sessionsRes.status}`);
-  const sessionsBody = sessionsRes.ok ? await sessionsRes.json().catch(() => []) : [];
-  const allSessions: Array<{ navigator_id: string | null; status: string }> =
-    Array.isArray(sessionsBody) ? sessionsBody : (sessionsBody.sessions ?? []);
 
-  // Active load per navigator (non-closed sessions)
-  const loadMap: Record<string, number> = {};
-  for (const s of allSessions) {
-    if (s.navigator_id && s.status !== "closed") {
-      loadMap[s.navigator_id] = (loadMap[s.navigator_id] ?? 0) + 1;
+  // null = load data unavailable (e.g. 403); {} = available but empty.
+  // Keeping these distinct prevents treating every navigator as load=0 when we
+  // simply don't have data, which would let over-capacity navigators pass routing.
+  let loadMap: Record<string, number> | null = null;
+
+  if (sessionsRes.status === 403) {
+    console.warn(
+      "[session:create] sessions fetch returned 403 — M2M client lacks read-sessions permission. " +
+      "Load balancing is DISABLED for this request. Fix: grant the M2M application the " +
+      "sessions:read scope (or equivalent) in the Auth0 API settings for the Lambda audience.",
+    );
+  } else if (sessionsRes.ok) {
+    const sessionsBody = await sessionsRes.json().catch(() => null);
+
+    if (sessionsBody !== null && !Array.isArray(sessionsBody)) {
+      console.log(`[session:create] sessions response keys: ${Object.keys(sessionsBody as object).join(", ")}`);
     }
+
+    // Normalise to a flat array — handle bare array, { sessions }, { items }, { data }.
+    const rawSessions: Array<Record<string, unknown>> =
+      sessionsBody === null ? [] :
+      Array.isArray(sessionsBody) ? (sessionsBody as Array<Record<string, unknown>>) :
+      (((sessionsBody as Record<string, unknown>).sessions ??
+        (sessionsBody as Record<string, unknown>).items ??
+        (sessionsBody as Record<string, unknown>).data ??
+        []) as Array<Record<string, unknown>>);
+
+    // Active load per navigator (non-closed sessions).
+    // Try multiple field names — navigator_id (Lambda snake_case), assignedNavigatorId
+    // (Express camelCase), or assigned_navigator_id.
+    loadMap = {};
+    for (const s of rawSessions) {
+      const navId = (s.navigator_id ?? s.assignedNavigatorId ?? s.assigned_navigator_id) as string | null | undefined;
+      const status = s.status as string | null | undefined;
+      if (navId && status !== "closed") {
+        loadMap[navId] = (loadMap[navId] ?? 0) + 1;
+      }
+    }
+
+    console.log(
+      `[session:create] routing pool: ${navList.length} navigators, ${rawSessions.length} sessions loadMap=${JSON.stringify(loadMap)}`,
+    );
+  } else {
+    console.warn(`[session:create] sessions fetch failed: status=${sessionsRes.status} — load balancing disabled`);
   }
 
-  console.log(
-    `[session:create] routing pool: ${navList.length} navigators, ${allSessions.length} sessions`,
-  );
+  if (loadMap === null) {
+    console.log(`[session:create] routing pool: ${navList.length} navigators, load data unavailable`);
+  }
 
   // Per-navigator eligibility diagnostic
   const now = new Date();
   for (const n of navList) {
-    const load = loadMap[n.id] ?? 0;
+    const load = loadMap !== null ? (loadMap[n.id] ?? 0) : null;
     const reasons: string[] = [];
     if (n.status !== "available") reasons.push(`status=${n.status}`);
     if ((n.capacity ?? 0) <= 0) reasons.push(`capacity=${n.capacity}`);
     if (!isWithinSchedule(n.availability_schedule, now)) reasons.push("outside-schedule");
-    if ((n.capacity ?? 0) > 0 && load >= (n.capacity ?? 0)) reasons.push(`overload=${load}/${n.capacity}`);
+    if (load !== null && (n.capacity ?? 0) > 0 && load >= (n.capacity ?? 0)) reasons.push(`overload=${load}/${n.capacity}`);
     console.log(
       `[session:create]   nav=${n.id.slice(0, 8)} status=${n.status} cap=${n.capacity} load=${load} ` +
       `sched=${JSON.stringify(n.availability_schedule)} ` +
@@ -117,11 +157,13 @@ export async function POST(req: Request) {
     console.log("[session:create] routing pick: null (no eligible navigator → will queue)");
   }
 
-  // Create session, passing our pick so Lambda can try to honor it
+  // Create session, passing our pick so Lambda can try to honor it.
+  // language is normalized to full name so Lambda's routing can match navigator profiles.
   const createBody: Record<string, unknown> = {
     ...body,
     need_category: needCategory,
     needCategory,
+    ...(languageNormalized !== undefined ? { language: languageNormalized } : {}),
     ...(pick
       ? { navigator_id: pick.navigatorId, navigatorId: pick.navigatorId }
       : {}),

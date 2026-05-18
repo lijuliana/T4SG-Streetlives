@@ -12,6 +12,7 @@ export interface SessionStoreInterface {
   ): boolean;
   countActiveByNavigator(navigatorId: string): number;
   list(): Session[];
+  remove(sessionId: string): boolean;
 }
 
 class InMemorySessionStore implements SessionStoreInterface {
@@ -61,6 +62,10 @@ class InMemorySessionStore implements SessionStoreInterface {
 
   list(): Session[] {
     return Array.from(this.sessions.values());
+  }
+
+  remove(sessionId: string): boolean {
+    return this.sessions.delete(sessionId);
   }
 }
 
